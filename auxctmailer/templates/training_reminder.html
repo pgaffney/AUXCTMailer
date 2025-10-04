@@ -23,7 +23,9 @@
                 <li><strong>Member #:</strong> {{ member_num }}</li>
                 <li><strong>Name:</strong> {{ first_name }} {{ last_name }}</li>
                 <li><strong>AUX-CT Status:</strong> {{ status }}</li>
-                {% if uniform_inspection %}
+                {% if uniform_exempt %}
+                <li><strong>Last Uniform Inspection:</strong> Your record is currently marked as exempt from uniform inspection.</li>
+                {% elif uniform_inspection %}
                 <li><strong>Last Uniform Inspection:</strong> {{ uniform_inspection }}</li>
                 {% else %}
                 <li><strong>Last Uniform Inspection:</strong> You do not have a uniform inspection on file.</li>

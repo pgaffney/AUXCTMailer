@@ -59,10 +59,20 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
 
     # Parse uniform inspection date and check if it needs renewal
     uniform_inspection = normalized.get('uniform_inspection') or normalized.get('Uniform Inspection')
+    uniform_exempt = normalized.get('uniform_exempt') or normalized.get('Uniform Exempt')
+
+    # Check if member is exempt from uniform inspections
+    is_uniform_exempt = False
+    if uniform_exempt is not None and str(uniform_exempt).strip() in ['1', '1.0']:
+        is_uniform_exempt = True
+
     needs_inspection = True  # Default to needing inspection
 
+    # If exempt, no inspection needed
+    if is_uniform_exempt:
+        needs_inspection = False
     # Check if uniform_inspection is NaN or empty
-    if uniform_inspection and str(uniform_inspection).strip() and str(uniform_inspection).lower() != 'nan':
+    elif uniform_inspection and str(uniform_inspection).strip() and str(uniform_inspection).lower() != 'nan':
         try:
             # Try to parse the date (handles formats like "2/20/2024", "2/18/2025", etc.)
             inspection_date = datetime.strptime(str(uniform_inspection).strip(), "%m/%d/%Y")
@@ -79,6 +89,7 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
 
     # Update the normalized dict with cleaned value
     normalized['uniform_inspection'] = uniform_inspection
+    normalized['uniform_exempt'] = is_uniform_exempt
     normalized['needs_uniform_inspection'] = needs_inspection
 
     # Process course requirements if courses CSV is provided
