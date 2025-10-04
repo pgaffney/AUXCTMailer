@@ -54,11 +54,15 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
     normalized['current_year_start'] = f"1/1/{now.year}"
     normalized['current_year_end'] = f"12/31/{now.year}"
 
+    # Add extraction date to context
+    normalized['extraction_date'] = extraction_date if extraction_date else reference_date.strftime("%m/%d/%Y")
+
     # Parse uniform inspection date and check if it needs renewal
     uniform_inspection = normalized.get('uniform_inspection') or normalized.get('Uniform Inspection')
     needs_inspection = True  # Default to needing inspection
 
-    if uniform_inspection and str(uniform_inspection).strip():
+    # Check if uniform_inspection is NaN or empty
+    if uniform_inspection and str(uniform_inspection).strip() and str(uniform_inspection).lower() != 'nan':
         try:
             # Try to parse the date (handles formats like "2/20/2024", "2/18/2025", etc.)
             inspection_date = datetime.strptime(str(uniform_inspection).strip(), "%m/%d/%Y")
@@ -68,7 +72,13 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
         except (ValueError, AttributeError):
             # If we can't parse the date, assume they need inspection
             needs_inspection = True
+            uniform_inspection = None
+    else:
+        # Clear NaN or empty values
+        uniform_inspection = None
 
+    # Update the normalized dict with cleaned value
+    normalized['uniform_inspection'] = uniform_inspection
     normalized['needs_uniform_inspection'] = needs_inspection
 
     # Process course requirements if courses CSV is provided
@@ -83,6 +93,7 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
                 code = str(course['Code']).strip()
                 title = course['Title']
                 url = course['URL']
+                enrollment_code = course.get('EnrollmentCode', '')
 
                 # Get days until due from the member's record
                 days_until_due = normalized.get(code)
@@ -104,6 +115,7 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
                                 'code': code,
                                 'title': title,
                                 'url': url,
+                                'enrollment_code': enrollment_code,
                                 'days_until_due': (year_end - now).days,
                                 'due_date': year_end.strftime("%m/%d/%Y")
                             })
@@ -113,6 +125,7 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
                                 'code': code,
                                 'title': title,
                                 'url': url,
+                                'enrollment_code': enrollment_code,
                                 'days_overdue': abs(days_from_today)
                             })
                         elif 0 <= days_from_today <= 365:
@@ -121,6 +134,7 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
                                 'code': code,
                                 'title': title,
                                 'url': url,
+                                'enrollment_code': enrollment_code,
                                 'days_until_due': days_from_today,
                                 'due_date': actual_due_date.strftime("%m/%d/%Y")
                             })
