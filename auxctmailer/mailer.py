@@ -57,6 +57,15 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
     # Add extraction date to context
     normalized['extraction_date'] = extraction_date if extraction_date else reference_date.strftime("%m/%d/%Y")
 
+    # Calculate 365 days after extraction date for "no courses due" message
+    extraction_plus_365 = reference_date + timedelta(days=365)
+    normalized['extraction_plus_365'] = extraction_plus_365.strftime("%m/%d/%Y")
+
+    # Convert all-uppercase first names to title case for friendlier greeting
+    first_name = normalized.get('first_name') or normalized.get('First Name')
+    if first_name and isinstance(first_name, str) and first_name.isupper():
+        normalized['first_name'] = first_name.title()
+
     # Parse uniform inspection date and check if it needs renewal
     uniform_inspection = normalized.get('uniform_inspection') or normalized.get('Uniform Inspection')
     uniform_exempt = normalized.get('uniform_exempt') or normalized.get('Uniform Exempt')

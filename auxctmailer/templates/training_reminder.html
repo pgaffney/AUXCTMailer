@@ -35,7 +35,7 @@
 
         {% if status == 'Certified' %}
         <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
-            <strong>✓ Great news!</strong> Your core training is currently certified.
+            <strong>✓ Great news!</strong> Your core training is currently certified.{% if not has_overdue_courses and not has_due_soon_courses %} You do not have any core training courses due prior to {{ extraction_plus_365 }}.{% endif %}
         </div>
         {% else %}
         <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
@@ -66,7 +66,7 @@
                 </li>
             {% endfor %}
             </ul>
-            <p style="margin: 10px 0 0 0; font-weight: bold;">⚠️ After completing these courses, please contact the IS officer to update your record.</p>
+            <p style="margin: 10px 0 0 0; font-weight: bold;">⚠️ After completing these courses, please contact Paul Gaffney, FSO-IS, by email at paul.gaffney@hey.com or by phone/text at 508-904-1393 to update your record.</p>
         </div>
         {% endif %}
 
@@ -88,7 +88,7 @@
         </div>
         {% endif %}
 
-        <p style="margin-top: 30px;">If you have any questions about your training status, please contact your flotilla training officer or reply to this email.</p>
+        <p style="margin-top: 30px;">If you have any questions about your training status, please contact your flotilla training officer or IS officer or reply to this email.</p>
 
         <p><strong>Semper Paratus!</strong></p>
     </div>
