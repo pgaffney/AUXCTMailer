@@ -56,7 +56,7 @@
         {% if has_overdue_courses %}
         <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0;">
             <strong>🚨 OVERDUE COURSES - ACTION REQUIRED</strong><br>
-            <p style="margin: 10px 0 5px 0;">The following courses are overdue and must be completed immediately:</p>
+            <p style="margin: 10px 0 5px 0;">The following courses are overdue and should be completed immediately:</p>
             <ul style="margin: 5px 0; padding-left: 20px;">
             {% for course in courses_overdue %}
                 <li>
@@ -72,9 +72,9 @@
         <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
             <strong>⏰ Upcoming Course Deadlines</strong><br>
             {% if courses_due_soon|length == 1 %}
-            <p style="margin: 10px 0 5px 0;">The following course needs to be completed soon:</p>
+            <p style="margin: 10px 0 5px 0;">The following course should be completed soon:</p>
             {% else %}
-            <p style="margin: 10px 0 5px 0;">The following courses need to be completed soon:</p>
+            <p style="margin: 10px 0 5px 0;">The following courses should be completed soon:</p>
             {% endif %}
             <ul style="margin: 5px 0; padding-left: 20px;">
             {% for course in courses_due_soon %}

@@ -108,8 +108,11 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
                         # Calculate days from TODAY to the due date
                         days_from_today = (actual_due_date - now).days
 
-                        # Special case: Suicide Prevention with days=0 is due 12/31 of current year
-                        if code == 'SP_100643' and days == 0:
+                        # Special case: Certain courses with days=0 are due 12/31 of current year
+                        # SP_100643: Suicide Prevention
+                        # CRA_502319: Civil Rights Awareness
+                        # SAPRR_502379: Sexual Assault Prevention, Response, and Recovery
+                        if code in ['SP_100643', 'CRA_502319', 'SAPRR_502379'] and days == 0:
                             year_end = datetime(now.year, 12, 31)
                             normalized['courses_due_soon'].append({
                                 'code': code,
