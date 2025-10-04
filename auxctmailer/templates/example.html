@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Template Example</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+
+    <div style="background-color: #003f87; color: white; padding: 20px; text-align: center;">
+        <h1 style="margin: 0;">AUXCT</h1>
+        <p style="margin: 5px 0 0 0; font-size: 14px;">Auxiliary Coast Guard</p>
+    </div>
+
+    <div style="padding: 30px 20px;">
+        <h2>Hello {{ first_name }}!</h2>
+
+        <p>This is an example email template. You can customize this with any HTML and use variables from your CSV file.</p>
+
+        <p><strong>Available variables from your record:</strong></p>
+        <ul>
+            {% for key, value in __dict__.items() %}
+                {% if not key.startswith('_') %}
+                <li><strong>{{ key }}:</strong> {{ value }}</li>
+                {% endif %}
+            {% endfor %}
+        </ul>
+
+        <p>You can use conditional logic:</p>
+        {% if status == 'active' %}
+        <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+            <strong>Welcome back, active member!</strong>
+        </div>
+        {% else %}
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+            <strong>We'd love to see you active again!</strong>
+        </div>
+        {% endif %}
+
+        <p>And loops for lists of items (if your CSV has list data).</p>
+
+        <div style="background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px;">
+            <p style="margin: 0;"><strong>Need help?</strong> Reply to this email or contact us at support@auxct.org</p>
+        </div>
+    </div>
+
+    <div style="background-color: #e9ecef; padding: 20px; text-align: center; font-size: 12px; color: #6c757d;">
+        <p style="margin: 0;">© 2025 AUXCT - Auxiliary Coast Guard Connecticut</p>
+        <p style="margin: 5px 0 0 0;">
+            <a href="#" style="color: #003f87; text-decoration: none;">Unsubscribe</a> |
+            <a href="#" style="color: #003f87; text-decoration: none;">Update Preferences</a>
+        </p>
+    </div>
+
+</body>
+</html>

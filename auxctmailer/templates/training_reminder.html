@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AUXCT Training Reminder</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+
+    <div style="background-color: #003f87; color: white; padding: 20px; text-align: center;">
+        <h1 style="margin: 0;">U.S. Coast Guard Auxiliary</h1>
+        <p style="margin: 5px 0 0 0; font-size: 14px;">Woods Hole Flotilla 013-11-02</p>
+    </div>
+
+    <div style="padding: 30px 20px;">
+        <h2>Hello {{ first_name }}!</h2>
+
+        <p>This is a friendly reminder regarding your AUXCT training and certification status.</p>
+
+        <div style="background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px;">
+            <p style="margin: 0 0 10px 0;"><strong>Member Information:</strong></p>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+                <li><strong>Member #:</strong> {{ member_num }}</li>
+                <li><strong>Name:</strong> {{ first_name }} {{ last_name }}</li>
+                <li><strong>Status:</strong> {{ status }}</li>
+                {% if uniform_inspection %}
+                <li><strong>Last Uniform Inspection:</strong> {{ uniform_inspection }}</li>
+                {% else %}
+                <li><strong>Last Uniform Inspection:</strong> Not recorded</li>
+                {% endif %}
+            </ul>
+        </div>
+
+        {% if status == 'Certified' %}
+        <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
+            <strong>✓ Great news!</strong> Your core training is currently certified.
+        </div>
+        {% else %}
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+            <strong>⚠ Action Required:</strong> Your core training certification needs attention.
+        </div>
+        {% endif %}
+
+        {% if needs_uniform_inspection %}
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+            <strong>⚠ Uniform Inspection Required</strong><br>
+            Please complete a uniform inspection prior to {{ current_year_end }}.
+            {% if uniform_inspection %}
+            Your last inspection was on {{ uniform_inspection }}.
+            {% else %}
+            No inspection is recorded for this year.
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% if has_overdue_courses %}
+        <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0;">
+            <strong>🚨 OVERDUE COURSES - ACTION REQUIRED</strong><br>
+            <p style="margin: 10px 0 5px 0;">The following courses are overdue and must be completed immediately:</p>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+            {% for course in courses_overdue %}
+                <li>
+                    <strong>{{ course.title }}</strong> - Overdue by {{ course.days_overdue }} days<br>
+                    <a href="{{ course.url }}" style="color: #dc3545;">Complete Now</a>
+                </li>
+            {% endfor %}
+            </ul>
+            <p style="margin: 10px 0 0 0; font-weight: bold;">⚠️ After completing these courses, please contact the IS officer to update your record.</p>
+        </div>
+        {% endif %}
+
+        {% if has_due_soon_courses %}
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+            <strong>⏰ Upcoming Course Deadlines</strong><br>
+            <p style="margin: 10px 0 5px 0;">The following courses need to be completed soon:</p>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+            {% for course in courses_due_soon %}
+                <li>
+                    <strong>{{ course.title }}</strong> - Due {{ course.due_date }} ({{ course.days_until_due }} days)<br>
+                    <a href="{{ course.url }}" style="color: #856404;">View Course</a>
+                </li>
+            {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <p style="margin-top: 30px;">If you have any questions about your training status, please contact your flotilla training officer or reply to this email.</p>
+
+        <p><strong>Semper Paratus!</strong></p>
+    </div>
+
+    <div style="background-color: #e9ecef; padding: 20px; text-align: center; font-size: 12px; color: #6c757d;">
+        <p style="margin: 0;">© 2025 U.S. Coast Guard Auxiliary</p>
+        <p style="margin: 5px 0 0 0;">Woods Hole Flotilla 013-11-02</p>
+    </div>
+
+</body>
+</html>

@@ -1,0 +1,4 @@
+pandas
+python-dotenv
+jinja2
+sendgrid
