@@ -290,7 +290,8 @@ class EmailSender:
                         subject_template: str,
                         from_email: Optional[str] = None,
                         courses_csv: Optional[str] = None,
-                        extraction_date: Optional[str] = None) -> Dict[str, List[str]]:
+                        extraction_date: Optional[str] = None,
+                        save_html_dir: Optional[str] = None) -> Dict[str, List[str]]:
         """Send personalized emails to multiple recipients.
 
         Args:
@@ -301,11 +302,17 @@ class EmailSender:
             from_email: Sender email (defaults to username)
             courses_csv: Optional path to courses CSV file
             extraction_date: Optional extraction date (MM/DD/YYYY)
+            save_html_dir: Optional directory to save HTML copies of sent emails
 
         Returns:
             Dictionary with 'success' and 'failed' lists of email addresses
         """
         results = {'success': [], 'failed': []}
+
+        # Create save directory if specified
+        if save_html_dir:
+            save_path = Path(save_html_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
 
         for recipient in recipients:
             # Normalize keys for template compatibility
@@ -330,6 +337,15 @@ class EmailSender:
             if success:
                 results['success'].append(email)
                 print(f"✓ Sent to {email}")
+
+                # Save HTML copy if directory specified
+                if save_html_dir:
+                    member_num = normalized_recipient.get('member_num', 'unknown')
+                    first_name = normalized_recipient.get('first_name', '')
+                    last_name = normalized_recipient.get('last_name', '')
+                    filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+                    file_path = save_path / filename
+                    file_path.write_text(body_html)
             else:
                 results['failed'].append(email)
                 print(f"✗ Failed to send to {email}")
@@ -395,7 +411,8 @@ class SendGridEmailSender:
                         subject_template: str,
                         from_email: Optional[str] = None,
                         courses_csv: Optional[str] = None,
-                        extraction_date: Optional[str] = None) -> Dict[str, List[str]]:
+                        extraction_date: Optional[str] = None,
+                        save_html_dir: Optional[str] = None) -> Dict[str, List[str]]:
         """Send personalized emails to multiple recipients via SendGrid.
 
         Args:
@@ -406,11 +423,17 @@ class SendGridEmailSender:
             from_email: Sender email (defaults to configured from_email)
             courses_csv: Optional path to courses CSV file
             extraction_date: Optional extraction date (MM/DD/YYYY)
+            save_html_dir: Optional directory to save HTML copies of sent emails
 
         Returns:
             Dictionary with 'success' and 'failed' lists of email addresses
         """
         results = {'success': [], 'failed': []}
+
+        # Create save directory if specified
+        if save_html_dir:
+            save_path = Path(save_html_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
 
         for recipient in recipients:
             # Normalize keys for template compatibility
@@ -435,6 +458,15 @@ class SendGridEmailSender:
             if success:
                 results['success'].append(email)
                 print(f"✓ Sent to {email}")
+
+                # Save HTML copy if directory specified
+                if save_html_dir:
+                    member_num = normalized_recipient.get('member_num', 'unknown')
+                    first_name = normalized_recipient.get('first_name', '')
+                    last_name = normalized_recipient.get('last_name', '')
+                    filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+                    file_path = save_path / filename
+                    file_path.write_text(body_html)
             else:
                 results['failed'].append(email)
                 print(f"✗ Failed to send to {email}")

@@ -57,6 +57,10 @@ def main():
         '--template-dir',
         help='Custom templates directory (default: auxctmailer/templates)'
     )
+    parser.add_argument(
+        '--save-html',
+        help='Directory to save HTML copies of sent emails (optional)'
+    )
 
     args = parser.parse_args()
 
@@ -158,7 +162,8 @@ def main():
         subject_template=args.subject,
         from_email=from_email,
         courses_csv=args.courses_csv,
-        extraction_date=args.extraction_date
+        extraction_date=args.extraction_date,
+        save_html_dir=args.save_html
     )
 
     # Print summary
