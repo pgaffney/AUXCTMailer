@@ -294,9 +294,14 @@ def main():
         help='Unix timestamp to retrieve failures after this time (optional)'
     )
     parser.add_argument(
+        '--list-only',
+        action='store_true',
+        help='Only query SendGrid and list failures without attempting SMTP retry'
+    )
+    parser.add_argument(
         '--dry-run',
         action='store_true',
-        help='Show what would be sent without actually sending'
+        help='Show what would be sent without actually sending (implies --list-only behavior plus retry simulation)'
     )
 
     args = parser.parse_args()
@@ -315,7 +320,19 @@ def main():
         print("No matching HTML files found to retry.")
         return 0
 
-    # Step 3: Retry via SMTP
+    # Step 3: If list-only mode, print summary and exit
+    if args.list_only:
+        print("\n" + "=" * 80)
+        print("LIST-ONLY MODE - No retry will be attempted")
+        print("=" * 80)
+        print(f"\nSummary:")
+        print(f"  Failed emails in SendGrid: {len(failed_emails)}")
+        print(f"  Matching HTML files found: {len(html_files)}")
+        print(f"\nTo retry these emails via SMTP, run without --list-only flag")
+        print("=" * 80)
+        return 0
+
+    # Step 4: Retry via SMTP
     retry_via_smtp(html_files, args.csv_file, dry_run=args.dry_run)
 
     return 0

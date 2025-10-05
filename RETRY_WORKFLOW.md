@@ -10,7 +10,24 @@ SendGrid uses shared IP addresses that may occasionally be listed on DNSBLs (DNS
 
 ## Workflow Options
 
-### Option 1: Fully Automated (Recommended)
+### Option 1: Check for Failures Only (List Mode)
+
+Query SendGrid API and list failures without attempting any retry:
+
+```bash
+# Just list what failed - no SMTP retry attempt
+python retry_failed_emails.py \
+  --html-dir "sent_emails_YYYY-MM-DD" \
+  --csv-file MemberEmail.csv \
+  --list-only
+```
+
+**Use this when:**
+- You want to see if there are any failures
+- You're diagnosing SendGrid issues
+- You want to review failures before retrying
+
+### Option 2: Fully Automated Retry (Recommended)
 
 Query SendGrid API, find matching HTML files, and retry via SMTP in one command:
 
@@ -27,7 +44,7 @@ python retry_failed_emails.py \
   --csv-file MemberEmail.csv
 ```
 
-### Option 2: Manual Selection
+### Option 3: Manual Selection
 
 If you've already organized failed deliveries into a subdirectory:
 
@@ -38,7 +55,7 @@ python retry_failed_emails.py \
   --csv-file MemberEmail.csv
 ```
 
-### Option 3: Time-Based Filtering
+### Option 4: Time-Based Filtering
 
 Only retry failures that occurred after a specific time:
 
@@ -63,7 +80,31 @@ python retry_failed_emails.py \
 
 2. **Finds matching HTML files** from your sent emails archive
 
-3. **Re-sends via SMTP** using credentials from `.env`
+3. **Re-sends via SMTP** using credentials from `.env` (unless `--list-only` is used)
+
+## Understanding the Modes
+
+### `--list-only` (Query Only)
+- ✅ Queries SendGrid API
+- ✅ Shows all failures with details
+- ✅ Matches HTML files
+- ❌ Does NOT attempt SMTP retry
+- **Use:** To check if there are failures without taking action
+
+### `--dry-run` (Simulation)
+- ✅ Queries SendGrid API
+- ✅ Shows all failures with details
+- ✅ Matches HTML files
+- ✅ Simulates SMTP retry (shows what would be sent)
+- ❌ Does NOT actually send emails
+- **Use:** To verify everything before production run
+
+### Production Mode (No Flags)
+- ✅ Queries SendGrid API
+- ✅ Shows all failures with details
+- ✅ Matches HTML files
+- ✅ Actually sends emails via SMTP
+- **Use:** To retry failed deliveries
 
 ## Example Output
 
