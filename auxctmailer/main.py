@@ -85,9 +85,16 @@ def main():
             smtp_port = int(os.getenv('SMTP_PORT', '587'))
             smtp_user = os.getenv('SMTP_USER')
             smtp_pass = os.getenv('SMTP_PASSWORD')
+            smtp_use_tls = os.getenv('SMTP_USE_TLS', 'true').lower() in ('true', '1', 'yes')
+
+            # FROM_EMAIL defaults to SMTP_USER if not specified
+            if not from_email:
+                from_email = smtp_user
+
             if not all([smtp_host, smtp_user, smtp_pass]):
                 print("Error: SMTP configuration missing in environment variables")
                 print("Required: SMTP_HOST, SMTP_USER, SMTP_PASSWORD")
+                print("Optional: SMTP_PORT (default: 587), SMTP_USE_TLS (default: true), FROM_EMAIL (default: SMTP_USER)")
                 print("(Use --dry-run to test without SMTP configuration)")
                 return 1
         else:
@@ -152,7 +159,8 @@ def main():
             smtp_host=smtp_host,
             smtp_port=smtp_port,
             username=smtp_user,
-            password=smtp_pass
+            password=smtp_pass,
+            use_tls=smtp_use_tls
         )
 
     results = sender.send_bulk_emails(

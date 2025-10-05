@@ -51,3 +51,8 @@ logs/
 
 # Test outputs
 test_output/
+
+# Sent email archives (contain member data)
+sent_emails_*/
+test_emails/
+*.html
