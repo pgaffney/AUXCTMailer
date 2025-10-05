@@ -61,10 +61,13 @@ def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, ex
     extraction_plus_365 = reference_date + timedelta(days=365)
     normalized['extraction_plus_365'] = extraction_plus_365.strftime("%m/%d/%Y")
 
-    # Convert all-uppercase first names to title case for friendlier greeting
+    # Create title case version of first name for friendlier greeting
+    # Keep original first_name unchanged for member info display
     first_name = normalized.get('first_name') or normalized.get('First Name')
     if first_name and isinstance(first_name, str) and first_name.isupper():
-        normalized['first_name'] = first_name.title()
+        normalized['first_name_titlecase'] = first_name.title()
+    else:
+        normalized['first_name_titlecase'] = first_name
 
     # Parse uniform inspection date and check if it needs renewal
     uniform_inspection = normalized.get('uniform_inspection') or normalized.get('Uniform Inspection')
@@ -308,13 +311,14 @@ class EmailSender:
             Dictionary with 'success' and 'failed' lists of email addresses
         """
         results = {'success': [], 'failed': []}
+        total = len(recipients)
 
         # Create save directory if specified
         if save_html_dir:
             save_path = Path(save_html_dir)
             save_path.mkdir(parents=True, exist_ok=True)
 
-        for recipient in recipients:
+        for idx, recipient in enumerate(recipients, 1):
             # Normalize keys for template compatibility
             normalized_recipient = normalize_template_context(recipient, courses_csv, extraction_date)
 
@@ -336,7 +340,7 @@ class EmailSender:
 
             if success:
                 results['success'].append(email)
-                print(f"✓ Sent to {email}")
+                print(f"[{idx}/{total}] ✓ Sent to {email}")
 
                 # Save HTML copy if directory specified
                 if save_html_dir:
@@ -348,7 +352,7 @@ class EmailSender:
                     file_path.write_text(body_html)
             else:
                 results['failed'].append(email)
-                print(f"✗ Failed to send to {email}")
+                print(f"[{idx}/{total}] ✗ Failed to send to {email}")
 
         return results
 
@@ -429,13 +433,14 @@ class SendGridEmailSender:
             Dictionary with 'success' and 'failed' lists of email addresses
         """
         results = {'success': [], 'failed': []}
+        total = len(recipients)
 
         # Create save directory if specified
         if save_html_dir:
             save_path = Path(save_html_dir)
             save_path.mkdir(parents=True, exist_ok=True)
 
-        for recipient in recipients:
+        for idx, recipient in enumerate(recipients, 1):
             # Normalize keys for template compatibility
             normalized_recipient = normalize_template_context(recipient, courses_csv, extraction_date)
 
@@ -457,7 +462,7 @@ class SendGridEmailSender:
 
             if success:
                 results['success'].append(email)
-                print(f"✓ Sent to {email}")
+                print(f"[{idx}/{total}] ✓ Sent to {email}")
 
                 # Save HTML copy if directory specified
                 if save_html_dir:
@@ -469,6 +474,6 @@ class SendGridEmailSender:
                     file_path.write_text(body_html)
             else:
                 results['failed'].append(email)
-                print(f"✗ Failed to send to {email}")
+                print(f"[{idx}/{total}] ✗ Failed to send to {email}")
 
         return results
