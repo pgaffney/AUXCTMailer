@@ -2,6 +2,10 @@
 """
 Automated retry script for SendGrid delivery failures.
 
+IMPORTANT: This script must be run from within the virtual environment.
+Run: source venv/bin/activate
+Then: python retry_failed_emails.py [options]
+
 This script:
 1. Queries SendGrid API for bounces, blocks, and invalid emails
 2. Finds matching HTML files in the sent emails archive directory

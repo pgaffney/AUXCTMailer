@@ -8,6 +8,23 @@ When SendGrid delivery failures occur (bounces, blocks, DNSBL issues), you can a
 
 SendGrid uses shared IP addresses that may occasionally be listed on DNSBLs (DNS-based blacklists), causing email providers like Comcast to block deliveries. Using your own SMTP server (Gmail) bypasses this issue.
 
+## Quick Start
+
+**Two ways to run the retry script:**
+
+### Option A: Using wrapper script (easiest)
+```bash
+./run_retry.sh --list-only --html-dir "sent_emails_YYYY-MM-DD"
+```
+
+### Option B: Activate venv manually
+```bash
+source venv/bin/activate
+python retry_failed_emails.py --list-only --html-dir "sent_emails_YYYY-MM-DD"
+```
+
+Both methods work the same - the wrapper script just activates the virtual environment for you.
+
 ## Workflow Options
 
 ### Option 1: Check for Failures Only (List Mode)
@@ -16,7 +33,7 @@ Query SendGrid API and list failures without attempting any retry:
 
 ```bash
 # Just list what failed - no SMTP retry attempt
-python retry_failed_emails.py \
+./run_retry.sh \
   --html-dir "sent_emails_YYYY-MM-DD" \
   --csv-file MemberEmail.csv \
   --list-only
@@ -33,13 +50,13 @@ Query SendGrid API, find matching HTML files, and retry via SMTP in one command:
 
 ```bash
 # Dry run first (recommended)
-python retry_failed_emails.py \
+./run_retry.sh \
   --html-dir "sent_emails_YYYY-MM-DD" \
   --csv-file MemberEmail.csv \
   --dry-run
 
 # Production run
-python retry_failed_emails.py \
+./run_retry.sh \
   --html-dir "sent_emails_YYYY-MM-DD" \
   --csv-file MemberEmail.csv
 ```
@@ -50,7 +67,7 @@ If you've already organized failed deliveries into a subdirectory:
 
 ```bash
 # Retry specific subdirectory
-python retry_failed_emails.py \
+./run_retry.sh \
   --html-dir "sent_emails_YYYY-MM-DD/Delivery Failures" \
   --csv-file MemberEmail.csv
 ```
@@ -65,7 +82,7 @@ Only retry failures that occurred after a specific time:
 # Use: date -j -f "%Y-%m-%d %H:%M:%S" "2025-10-05 08:00:00" +%s
 # Returns: 1728129600
 
-python retry_failed_emails.py \
+./run_retry.sh \
   --html-dir "sent_emails_YYYY-MM-DD" \
   --csv-file MemberEmail.csv \
   --start-time 1728129600
