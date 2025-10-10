@@ -111,6 +111,42 @@ class MemberDatabase:
         # Convert to title case
         return name.strip().title()
 
+    def _lookup_fso_email(self, fso_name: str, email_df: pd.DataFrame) -> Optional[str]:
+        """Look up FSO email address by matching name in email database.
+
+        Args:
+            fso_name: FSO full name (e.g., "PAUL JAMES GAFFNEY")
+            email_df: DataFrame with member email information
+
+        Returns:
+            Email address if found, None otherwise
+        """
+        if pd.isna(fso_name) or not isinstance(fso_name, str):
+            return None
+
+        # Parse the FSO name (format: "FIRST MIDDLE LAST" or "FIRST LAST")
+        name_parts = fso_name.strip().split()
+        if len(name_parts) < 2:
+            return None
+
+        # Last name is the last part, first name is the first part
+        last_name = name_parts[-1]
+        first_name = name_parts[0]
+
+        # Try to find matching member in email database
+        # Match on Last Name and First Name (case-insensitive)
+        matches = email_df[
+            (email_df['Last Name'].str.upper() == last_name.upper()) &
+            (email_df['First Name'].str.upper() == first_name.upper())
+        ]
+
+        if not matches.empty:
+            email = matches.iloc[0]['Email']
+            if pd.notna(email):
+                return str(email).strip()
+
+        return None
+
     def load(self) -> pd.DataFrame:
         """Load and join member records from CSV files.
 
@@ -145,6 +181,14 @@ class MemberDatabase:
         if 'Unit Number' in training_df.columns:
             training_df['Unit Number Pretty'] = training_df['Unit Number'].apply(self._prettify_unit_number)
 
+        # Load email data first (needed for FSO email lookup)
+        email_df = None
+        if self.email_csv and self.email_csv.exists():
+            email_df = pd.read_csv(self.email_csv)
+            # Clean up Member ID column
+            if 'Member ID' in email_df.columns:
+                email_df['Member ID'] = email_df['Member ID'].astype(str).str.strip()
+
         # Load units data if provided
         if self.units_csv and self.units_csv.exists():
             # Read with dtype=str to prevent numeric conversion issues
@@ -160,11 +204,19 @@ class MemberDatabase:
             if 'Unit Name' in self.units_df.columns:
                 self.units_df['Unit Name Pretty'] = self.units_df['Unit Name'].apply(self._prettify_unit_name)
 
-            # Create pretty versions of FSO names
+            # Create pretty versions of FSO names and look up emails
             if 'FSO-IS' in self.units_df.columns:
                 self.units_df['FSO-IS Pretty'] = self.units_df['FSO-IS'].apply(self._prettify_fso_name)
+                if email_df is not None:
+                    self.units_df['FSO-IS Email'] = self.units_df['FSO-IS'].apply(
+                        lambda name: self._lookup_fso_email(name, email_df)
+                    )
             if 'FSO-MT' in self.units_df.columns:
                 self.units_df['FSO-MT Pretty'] = self.units_df['FSO-MT'].apply(self._prettify_fso_name)
+                if email_df is not None:
+                    self.units_df['FSO-MT Email'] = self.units_df['FSO-MT'].apply(
+                        lambda name: self._lookup_fso_email(name, email_df)
+                    )
 
             # Join units data to get unit names (both raw and pretty) and FSO contacts
             if 'Unit Number' in training_df.columns:
@@ -173,9 +225,13 @@ class MemberDatabase:
                 if 'FSO-IS' in self.units_df.columns:
                     cols_to_merge.append('FSO-IS')
                     cols_to_merge.append('FSO-IS Pretty')
+                    if 'FSO-IS Email' in self.units_df.columns:
+                        cols_to_merge.append('FSO-IS Email')
                 if 'FSO-MT' in self.units_df.columns:
                     cols_to_merge.append('FSO-MT')
                     cols_to_merge.append('FSO-MT Pretty')
+                    if 'FSO-MT Email' in self.units_df.columns:
+                        cols_to_merge.append('FSO-MT Email')
 
                 training_df = training_df.merge(
                     self.units_df[cols_to_merge],
@@ -183,13 +239,13 @@ class MemberDatabase:
                     how='left'
                 )
 
-        # If email CSV provided, join the tables
+        # If email CSV provided, join the tables (reuse email_df if already loaded)
         if self.email_csv and self.email_csv.exists():
-            email_df = pd.read_csv(self.email_csv)
-
-            # Clean up Member ID column
-            if 'Member ID' in email_df.columns:
-                email_df['Member ID'] = email_df['Member ID'].astype(str).str.strip()
+            if email_df is None:
+                email_df = pd.read_csv(self.email_csv)
+                # Clean up Member ID column
+                if 'Member ID' in email_df.columns:
+                    email_df['Member ID'] = email_df['Member ID'].astype(str).str.strip()
 
             # Join on Member # / Member ID
             self.members_df = training_df.merge(
