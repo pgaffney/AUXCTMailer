@@ -145,10 +145,17 @@ class MemberDatabase:
             if 'Unit Name' in self.units_df.columns:
                 self.units_df['Unit Name Pretty'] = self.units_df['Unit Name'].apply(self._prettify_unit_name)
 
-            # Join units data to get unit names (both raw and pretty)
+            # Join units data to get unit names (both raw and pretty) and FSO contacts
             if 'Unit Number' in training_df.columns:
+                # Select columns that exist in units_df
+                cols_to_merge = ['Unit Number', 'Unit Name', 'Unit Name Pretty']
+                if 'FSO-IS' in self.units_df.columns:
+                    cols_to_merge.append('FSO-IS')
+                if 'FSO-MT' in self.units_df.columns:
+                    cols_to_merge.append('FSO-MT')
+
                 training_df = training_df.merge(
-                    self.units_df[['Unit Number', 'Unit Name', 'Unit Name Pretty']],
+                    self.units_df[cols_to_merge],
                     on='Unit Number',
                     how='left'
                 )
