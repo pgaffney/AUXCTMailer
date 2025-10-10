@@ -2,12 +2,14 @@
 
 ## Project Overview
 
-AUXCTMailer is an email automation system for the U.S. Coast Guard Auxiliary Woods Hole Flotilla 013-11-02. It sends personalized training reminder emails to members based on their AUXCT (AUX Core Training) status.
+AUXCTMailer is an email automation system for the U.S. Coast Guard Auxiliary. It sends personalized training reminder emails to members based on their AUXCT (AUX Core Training) status.
 
-**Primary Use Case:** Send automated training reminders to flotilla members with personalized course deadlines, uniform inspection reminders, and contact information.
+**Primary Use Case:** Send automated training reminders to flotilla members with personalized course deadlines, uniform inspection reminders, and contact information. Supports multiple units with dynamic unit name and number display.
 
 ## Key Features
 
+- ✅ **Multi-unit support** - Dynamic unit name and number lookup from UnitDetails.csv
+- ✅ **Pretty formatting** - Unit names (Title Case + "Flotilla" suffix) and numbers (DDD-VV-UU format)
 - ✅ Personalized emails with member-specific training requirements
 - ✅ Course deadline tracking with yellow (due soon) and red (overdue) warnings
 - ✅ Uniform inspection status tracking with exemption support
@@ -38,9 +40,10 @@ AUXCTMailer/
 └── CLAUDE.md               # This file
 
 # Data Files (NOT in Git):
-├── 2025-10-01 AUX-CT DB.csv    # Training data export
+├── 2025-10-01 AUX-CT DB.csv    # Training data export with Unit/Member/Competency/Status field
 ├── MemberEmail.csv              # Member emails + Uniform Exempt flag
-└── AUX-CT courses.csv           # Course information with enrollment keys
+├── AUX-CT courses.csv           # Course information with enrollment keys
+└── UnitDetails.csv              # Unit names and details (optional for multi-unit support)
 ```
 
 ## Important Configuration
@@ -66,9 +69,10 @@ FROM_EMAIL=paul@gaffney.io
 
 1. **Training CSV:** `2025-10-01 AUX-CT DB.csv`
    - Contains member training records
-   - Key columns: Member #, First Name, Last Name, Status, Uniform Inspection
+   - Key columns: Member #, First Name, Last Name, Status, Uniform Inspection, Unit/Member/Competency/Status
    - Course columns: PAWR_810015, POSH_810000, SETA_810030, SP_100643, SAPRR_502379, CRA_502319
    - Values in course columns = days until due from extraction date
+   - Unit/Member/Competency/Status format: `Unit: 0131102 | LASTNAME. FIRSTNAME 1234567 | AUXCT - CORE TRAINING (Status)`
 
 2. **Email CSV:** `MemberEmail.csv`
    - Contains: Member ID, Last Name, First Name, Email, Uniform Exempt
@@ -77,6 +81,12 @@ FROM_EMAIL=paul@gaffney.io
 3. **Courses CSV:** `AUX-CT courses.csv`
    - Contains: Code, Title, URL, EnrollmentCode
    - Maps course codes to friendly names and Moodle enrollment keys
+
+4. **Units CSV:** `UnitDetails.csv` (optional)
+   - Contains: Unit Number, Unit Name, Type, Last Modified Date, FSO-IS, FSO-MT
+   - Used for dynamic unit name lookup
+   - Unit Number format: 7 digits (DDDVVUU - District/Division/Unit)
+   - Unit names are auto-prettified: "WOODS HOLE FLOTILLA" → "Woods Hole Flotilla"
 
 ### Extraction Date Logic
 
@@ -119,6 +129,7 @@ python -m auxctmailer.main \
   --training-csv "2025-10-01 AUX-CT DB.csv" \
   --email-csv MemberEmail.csv \
   --courses-csv "AUX-CT courses.csv" \
+  --units-csv UnitDetails.csv \
   --extraction-date "10/01/2025" \
   --template training_reminder.html \
   --subject "AUXCT Training Reminder - {{ first_name }} {{ last_name }}" \
@@ -133,6 +144,7 @@ python -m auxctmailer.main \
   --training-csv "2025-10-01 AUX-CT DB.csv" \
   --email-csv MemberEmail.csv \
   --courses-csv "AUX-CT courses.csv" \
+  --units-csv UnitDetails.csv \
   --extraction-date "10/01/2025" \
   --template training_reminder.html \
   --subject "AUXCT Training Reminder - {{ first_name }} {{ last_name }}" \
@@ -146,6 +158,7 @@ python -m auxctmailer.main \
   --training-csv "2025-10-01 AUX-CT DB.csv" \
   --email-csv MemberEmail.csv \
   --courses-csv "AUX-CT courses.csv" \
+  --units-csv UnitDetails.csv \
   --extraction-date "10/01/2025" \
   --template training_reminder.html \
   --subject "AUXCT Training Reminder - {{ first_name }} {{ last_name }}" \
@@ -184,6 +197,10 @@ The template uses Jinja2 syntax with these key variables:
 - `{{ uniform_exempt }}` - Boolean, true if exempt
 - `{{ extraction_date }}` - Date training data was extracted
 - `{{ extraction_plus_365 }}` - Date 365 days after extraction
+- `{{ unit_number }}` - Raw unit number (e.g., "0131102")
+- `{{ unit_number_pretty }}` - Formatted unit number (e.g., "013-11-02")
+- `{{ unit_name }}` - Raw unit name (e.g., "WOODS HOLE FLOTILLA")
+- `{{ unit_name_pretty }}` - Formatted unit name (e.g., "Woods Hole Flotilla")
 
 ### Course Warnings
 - `{% if has_overdue_courses %}` - Red warning section
@@ -313,4 +330,4 @@ Project Owner: Paul Gaffney (FSO-IS)
 - Email: paul.gaffney@hey.com
 - Phone/Text: 508-904-1393
 
-Flotilla: Woods Hole Flotilla 013-11-02
+Original Flotilla: Woods Hole Flotilla 013-11-02 (now supports multiple units)
