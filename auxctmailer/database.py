@@ -111,6 +111,42 @@ class MemberDatabase:
         # Convert to title case
         return name.strip().title()
 
+    def _create_fso_display_name(self, name: str) -> Optional[str]:
+        """Create simplified FSO display name (First Last only).
+
+        Args:
+            name: FSO full name (e.g., "PAUL JAMES GAFFNEY" or "DANIEL J FARREN JR.")
+
+        Returns:
+            Display name with only first and last name (e.g., "Paul Gaffney", "Daniel Farren")
+        """
+        if pd.isna(name) or not isinstance(name, str):
+            return None
+
+        # Parse the name
+        name_parts = name.strip().split()
+        if len(name_parts) < 2:
+            return None
+
+        # Common suffixes to ignore
+        suffixes = ['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']
+
+        # Remove suffix from end if present
+        if name_parts[-1].upper().rstrip('.') in suffixes:
+            name_parts = name_parts[:-1]
+
+        if len(name_parts) < 2:
+            return None
+
+        # First name is always first part
+        first_name = name_parts[0]
+
+        # Last name is the last part (after removing suffix)
+        last_name = name_parts[-1]
+
+        # Return "First Last" in Title Case
+        return f"{first_name.title()} {last_name.title()}"
+
     def _lookup_fso_email(self, fso_name: str, email_df: pd.DataFrame) -> Optional[str]:
         """Look up FSO email address by matching name in email database.
 
@@ -216,15 +252,17 @@ class MemberDatabase:
             if 'Unit Name' in self.units_df.columns:
                 self.units_df['Unit Name Pretty'] = self.units_df['Unit Name'].apply(self._prettify_unit_name)
 
-            # Create pretty versions of FSO names and look up emails
+            # Create pretty versions of FSO names, display names, and look up emails
             if 'FSO-IS' in self.units_df.columns:
                 self.units_df['FSO-IS Pretty'] = self.units_df['FSO-IS'].apply(self._prettify_fso_name)
+                self.units_df['FSO-IS Display'] = self.units_df['FSO-IS'].apply(self._create_fso_display_name)
                 if email_df is not None:
                     self.units_df['FSO-IS Email'] = self.units_df['FSO-IS'].apply(
                         lambda name: self._lookup_fso_email(name, email_df)
                     )
             if 'FSO-MT' in self.units_df.columns:
                 self.units_df['FSO-MT Pretty'] = self.units_df['FSO-MT'].apply(self._prettify_fso_name)
+                self.units_df['FSO-MT Display'] = self.units_df['FSO-MT'].apply(self._create_fso_display_name)
                 if email_df is not None:
                     self.units_df['FSO-MT Email'] = self.units_df['FSO-MT'].apply(
                         lambda name: self._lookup_fso_email(name, email_df)
@@ -237,11 +275,15 @@ class MemberDatabase:
                 if 'FSO-IS' in self.units_df.columns:
                     cols_to_merge.append('FSO-IS')
                     cols_to_merge.append('FSO-IS Pretty')
+                    if 'FSO-IS Display' in self.units_df.columns:
+                        cols_to_merge.append('FSO-IS Display')
                     if 'FSO-IS Email' in self.units_df.columns:
                         cols_to_merge.append('FSO-IS Email')
                 if 'FSO-MT' in self.units_df.columns:
                     cols_to_merge.append('FSO-MT')
                     cols_to_merge.append('FSO-MT Pretty')
+                    if 'FSO-MT Display' in self.units_df.columns:
+                        cols_to_merge.append('FSO-MT Display')
                     if 'FSO-MT Email' in self.units_df.columns:
                         cols_to_merge.append('FSO-MT Email')
 

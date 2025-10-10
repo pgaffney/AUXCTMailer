@@ -87,7 +87,7 @@
         </div>
         {% endif %}
 
-        <p style="margin-top: 30px;">If you have any questions about your member data, please contact your FSO-IS{% if fsois_pretty %}{% if fsois_email %} <a href="mailto:{{ fsois_email }}">{{ fsois_pretty }}</a>{% else %} {{ fsois_pretty }}{% endif %}{% endif %}. If you need any assistance with training, please contact your FSO-MT{% if fsomt_pretty %}{% if fsomt_email %} <a href="mailto:{{ fsomt_email }}">{{ fsomt_pretty }}</a>{% else %} {{ fsomt_pretty }}{% endif %}{% endif %}.</p>
+        <p style="margin-top: 30px;">If you have any questions about your member data, please contact your FSO-IS{% if fsois_display %}{% if fsois_email %} <a href="mailto:{{ fsois_email }}">{{ fsois_display }}</a>{% else %} {{ fsois_display }}{% endif %}{% endif %}. If you need any assistance with training, please contact your FSO-MT{% if fsomt_display %}{% if fsomt_email %} <a href="mailto:{{ fsomt_email }}">{{ fsomt_display }}</a>{% else %} {{ fsomt_display }}{% endif %}{% endif %}.</p>
 
         <p><strong>Semper Paratus!</strong></p>
     </div>
