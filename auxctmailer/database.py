@@ -115,7 +115,7 @@ class MemberDatabase:
         """Look up FSO email address by matching name in email database.
 
         Args:
-            fso_name: FSO full name (e.g., "PAUL JAMES GAFFNEY")
+            fso_name: FSO full name (e.g., "PAUL JAMES GAFFNEY" or "DANIEL J FARREN JR.")
             email_df: DataFrame with member email information
 
         Returns:
@@ -124,14 +124,26 @@ class MemberDatabase:
         if pd.isna(fso_name) or not isinstance(fso_name, str):
             return None
 
-        # Parse the FSO name (format: "FIRST MIDDLE LAST" or "FIRST LAST")
+        # Parse the FSO name (format: "FIRST MIDDLE LAST" or "FIRST MIDDLE LAST SUFFIX")
         name_parts = fso_name.strip().split()
         if len(name_parts) < 2:
             return None
 
-        # Last name is the last part, first name is the first part
-        last_name = name_parts[-1]
+        # Common suffixes to ignore
+        suffixes = ['JR', 'JR.', 'SR', 'SR.', 'II', 'III', 'IV', 'V']
+
+        # Remove suffix from end if present
+        if name_parts[-1].upper().rstrip('.') in suffixes:
+            name_parts = name_parts[:-1]
+
+        if len(name_parts) < 2:
+            return None
+
+        # First name is always first part
         first_name = name_parts[0]
+
+        # Last name is the last part (after removing suffix)
+        last_name = name_parts[-1]
 
         # Try to find matching member in email database
         # Match on Last Name and First Name (case-insensitive)
