@@ -29,6 +29,10 @@ def main():
         help='Path to CSV file with course information (optional)'
     )
     parser.add_argument(
+        '--units-csv',
+        help='Path to CSV file with unit details (optional)'
+    )
+    parser.add_argument(
         '--extraction-date',
         help='Date when training data was extracted (format: MM/DD/YYYY). If not provided, assumes today.'
     )
@@ -105,7 +109,9 @@ def main():
     # Load member database
     print(f"Loading training data from {args.training_csv}...")
     print(f"Loading email data from {args.email_csv}...")
-    db = MemberDatabase(args.training_csv, args.email_csv)
+    if args.units_csv:
+        print(f"Loading unit details from {args.units_csv}...")
+    db = MemberDatabase(args.training_csv, args.email_csv, args.units_csv)
 
     # Filter members if criteria provided
     if args.filter:
