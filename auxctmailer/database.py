@@ -96,6 +96,21 @@ class MemberDatabase:
 
         return f"{district}-{division}-{unit}"
 
+    def _prettify_fso_name(self, name: str) -> Optional[str]:
+        """Convert FSO name to Title Case.
+
+        Args:
+            name: FSO name in ALL CAPS (e.g., "PAUL JAMES GAFFNEY")
+
+        Returns:
+            Pretty FSO name in Title Case (e.g., "Paul James Gaffney")
+        """
+        if pd.isna(name) or not isinstance(name, str):
+            return None
+
+        # Convert to title case
+        return name.strip().title()
+
     def load(self) -> pd.DataFrame:
         """Load and join member records from CSV files.
 
@@ -145,14 +160,22 @@ class MemberDatabase:
             if 'Unit Name' in self.units_df.columns:
                 self.units_df['Unit Name Pretty'] = self.units_df['Unit Name'].apply(self._prettify_unit_name)
 
+            # Create pretty versions of FSO names
+            if 'FSO-IS' in self.units_df.columns:
+                self.units_df['FSO-IS Pretty'] = self.units_df['FSO-IS'].apply(self._prettify_fso_name)
+            if 'FSO-MT' in self.units_df.columns:
+                self.units_df['FSO-MT Pretty'] = self.units_df['FSO-MT'].apply(self._prettify_fso_name)
+
             # Join units data to get unit names (both raw and pretty) and FSO contacts
             if 'Unit Number' in training_df.columns:
                 # Select columns that exist in units_df
                 cols_to_merge = ['Unit Number', 'Unit Name', 'Unit Name Pretty']
                 if 'FSO-IS' in self.units_df.columns:
                     cols_to_merge.append('FSO-IS')
+                    cols_to_merge.append('FSO-IS Pretty')
                 if 'FSO-MT' in self.units_df.columns:
                     cols_to_merge.append('FSO-MT')
+                    cols_to_merge.append('FSO-MT Pretty')
 
                 training_df = training_df.merge(
                     self.units_df[cols_to_merge],
