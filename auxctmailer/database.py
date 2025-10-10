@@ -72,6 +72,30 @@ class MemberDatabase:
 
         return pretty
 
+    def _prettify_unit_number(self, unit_number: str) -> Optional[str]:
+        """Convert unit number to pretty format DDD-VV-UU.
+
+        Args:
+            unit_number: 7-digit unit number string (e.g., "0131102")
+
+        Returns:
+            Pretty unit number (e.g., "013-11-02") or None if invalid format
+        """
+        if pd.isna(unit_number) or not isinstance(unit_number, str):
+            return None
+
+        # Strip whitespace and ensure it's exactly 7 digits
+        unit_number = unit_number.strip()
+        if len(unit_number) != 7 or not unit_number.isdigit():
+            return None
+
+        # Format as DDD-VV-UU
+        district = unit_number[0:3]  # First 3 digits
+        division = unit_number[3:5]  # Digits 4-5
+        unit = unit_number[5:7]      # Digits 6-7
+
+        return f"{district}-{division}-{unit}"
+
     def load(self) -> pd.DataFrame:
         """Load and join member records from CSV files.
 
@@ -96,6 +120,10 @@ class MemberDatabase:
             training_df['Unit Number'] = training_df['Unit/Member/Competency/Status  ↑'].apply(self._extract_unit_number)
         elif 'Unit/Member/Competency/Status' in training_df.columns:
             training_df['Unit Number'] = training_df['Unit/Member/Competency/Status'].apply(self._extract_unit_number)
+
+        # Create pretty version of unit number (DDD-VV-UU format)
+        if 'Unit Number' in training_df.columns:
+            training_df['Unit Number Pretty'] = training_df['Unit Number'].apply(self._prettify_unit_number)
 
         # Load units data if provided
         if self.units_csv and self.units_csv.exists():
