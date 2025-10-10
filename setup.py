@@ -9,7 +9,14 @@ setup(
         "python-dotenv",
         "jinja2",
         "sendgrid",
+        "requests",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=7.4.0",
+            "pytest-cov>=4.1.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             "auxctmailer=auxctmailer.main:main",

@@ -12,169 +12,16 @@ import pandas as pd
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail, Email, To, Content
 
+from auxctmailer.exceptions import EmailSendError, TemplateError
+from auxctmailer.logger import get_logger
+from auxctmailer.context import normalize_template_context  # Import from context module
 
-def normalize_template_context(data: Dict, courses_csv: Optional[str] = None, extraction_date: Optional[str] = None) -> Dict:
-    """Normalize dictionary keys to be template-friendly.
+logger = get_logger(__name__)
 
-    Converts keys like "First Name" to "first_name" and "Member #" to "member_num".
-    Also adds current year information and course status for date logic.
 
-    Args:
-        data: Dictionary with potentially problematic keys
-        courses_csv: Optional path to courses CSV file
-        extraction_date: Optional extraction date string (MM/DD/YYYY) - date when training data was extracted
-
-    Returns:
-        Dictionary with normalized keys (also keeps original keys)
-    """
-    from datetime import datetime, timedelta
-
-    normalized = dict(data)  # Keep original keys
-
-    # Determine the reference date for days_until_due calculations
-    if extraction_date:
-        try:
-            reference_date = datetime.strptime(extraction_date, "%m/%d/%Y")
-        except ValueError:
-            # If invalid format, fall back to today
-            reference_date = datetime.now()
-    else:
-        reference_date = datetime.now()
-
-    for key, value in data.items():
-        # Create a normalized version of the key
-        normalized_key = key.lower().replace(' ', '_').replace('#', 'num').replace('?', '').replace('/', '_')
-        # Remove any other special characters
-        normalized_key = re.sub(r'[^\w_]', '', normalized_key)
-        normalized[normalized_key] = value
-
-    # Add current year information for template logic
-    now = datetime.now()
-    normalized['current_year'] = now.year
-    normalized['current_year_start'] = f"1/1/{now.year}"
-    normalized['current_year_end'] = f"12/31/{now.year}"
-
-    # Add extraction date to context
-    normalized['extraction_date'] = extraction_date if extraction_date else reference_date.strftime("%m/%d/%Y")
-
-    # Calculate 365 days after extraction date for "no courses due" message
-    extraction_plus_365 = reference_date + timedelta(days=365)
-    normalized['extraction_plus_365'] = extraction_plus_365.strftime("%m/%d/%Y")
-
-    # Create title case version of first name for friendlier greeting
-    # Keep original first_name unchanged for member info display
-    first_name = normalized.get('first_name') or normalized.get('First Name')
-    if first_name and isinstance(first_name, str) and first_name.isupper():
-        normalized['first_name_titlecase'] = first_name.title()
-    else:
-        normalized['first_name_titlecase'] = first_name
-
-    # Parse uniform inspection date and check if it needs renewal
-    uniform_inspection = normalized.get('uniform_inspection') or normalized.get('Uniform Inspection')
-    uniform_exempt = normalized.get('uniform_exempt') or normalized.get('Uniform Exempt')
-
-    # Check if member is exempt from uniform inspections
-    is_uniform_exempt = False
-    if uniform_exempt is not None and str(uniform_exempt).strip() in ['1', '1.0']:
-        is_uniform_exempt = True
-
-    needs_inspection = True  # Default to needing inspection
-
-    # If exempt, no inspection needed
-    if is_uniform_exempt:
-        needs_inspection = False
-    # Check if uniform_inspection is NaN or empty
-    elif uniform_inspection and str(uniform_inspection).strip() and str(uniform_inspection).lower() != 'nan':
-        try:
-            # Try to parse the date (handles formats like "2/20/2024", "2/18/2025", etc.)
-            inspection_date = datetime.strptime(str(uniform_inspection).strip(), "%m/%d/%Y")
-            year_start = datetime(now.year, 1, 1)
-            # If inspection is this year or later, they don't need a new one
-            needs_inspection = inspection_date < year_start
-        except (ValueError, AttributeError):
-            # If we can't parse the date, assume they need inspection
-            needs_inspection = True
-            uniform_inspection = None
-    else:
-        # Clear NaN or empty values
-        uniform_inspection = None
-
-    # Update the normalized dict with cleaned value
-    normalized['uniform_inspection'] = uniform_inspection
-    normalized['uniform_exempt'] = is_uniform_exempt
-    normalized['needs_uniform_inspection'] = needs_inspection
-
-    # Process course requirements if courses CSV is provided
-    normalized['courses_overdue'] = []
-    normalized['courses_due_soon'] = []
-
-    if courses_csv and os.path.exists(courses_csv):
-        try:
-            courses_df = pd.read_csv(courses_csv)
-
-            for _, course in courses_df.iterrows():
-                code = str(course['Code']).strip()
-                title = course['Title']
-                url = course['URL']
-                enrollment_code = course.get('EnrollmentCode', '')
-
-                # Get days until due from the member's record
-                days_until_due = normalized.get(code)
-
-                if days_until_due is not None and pd.notna(days_until_due):
-                    try:
-                        days = int(float(days_until_due))
-
-                        # Calculate the actual due date from extraction date + days
-                        actual_due_date = reference_date + timedelta(days=days)
-
-                        # Calculate days from TODAY to the due date
-                        days_from_today = (actual_due_date - now).days
-
-                        # Special case: Certain courses with days=0 are due 12/31 of current year
-                        # SP_100643: Suicide Prevention
-                        # CRA_502319: Civil Rights Awareness
-                        # SAPRR_502379: Sexual Assault Prevention, Response, and Recovery
-                        if code in ['SP_100643', 'CRA_502319', 'SAPRR_502379'] and days == 0:
-                            year_end = datetime(now.year, 12, 31)
-                            normalized['courses_due_soon'].append({
-                                'code': code,
-                                'title': title,
-                                'url': url,
-                                'enrollment_code': enrollment_code,
-                                'days_until_due': (year_end - now).days,
-                                'due_date': year_end.strftime("%m/%d/%Y")
-                            })
-                        elif days_from_today < 0:
-                            # Course is overdue (due date has passed)
-                            normalized['courses_overdue'].append({
-                                'code': code,
-                                'title': title,
-                                'url': url,
-                                'enrollment_code': enrollment_code,
-                                'days_overdue': abs(days_from_today)
-                            })
-                        elif 0 <= days_from_today <= 365:
-                            # Course is due soon (within next 365 days)
-                            normalized['courses_due_soon'].append({
-                                'code': code,
-                                'title': title,
-                                'url': url,
-                                'enrollment_code': enrollment_code,
-                                'days_until_due': days_from_today,
-                                'due_date': actual_due_date.strftime("%m/%d/%Y")
-                            })
-                        # If days_from_today > 365, don't add any warning
-                    except (ValueError, TypeError):
-                        pass
-        except Exception as e:
-            # If we can't load courses, just continue without course warnings
-            pass
-
-    normalized['has_overdue_courses'] = len(normalized['courses_overdue']) > 0
-    normalized['has_due_soon_courses'] = len(normalized['courses_due_soon']) > 0
-
-    return normalized
+# Note: normalize_template_context has been moved to auxctmailer/context.py for better organization
+# This import maintains backward compatibility
+__all__ = ['EmailTemplate', 'EmailSender', 'SendGridEmailSender', 'normalize_template_context']
 
 
 class EmailTemplate:
@@ -284,7 +131,7 @@ class EmailSender:
             return True
 
         except Exception as e:
-            print(f"Failed to send email to {to_email}: {e}")
+            logger.error(f"Failed to send email to {to_email}: {e}")
             return False
 
     def send_bulk_emails(self, recipients: List[Dict],
@@ -340,7 +187,7 @@ class EmailSender:
 
             if success:
                 results['success'].append(email)
-                print(f"[{idx}/{total}] ✓ Sent to {email}")
+                logger.info(f"[{idx}/{total}] ✓ Sent to {email}")
 
                 # Save HTML copy if directory specified
                 if save_html_dir:
@@ -352,7 +199,7 @@ class EmailSender:
                     file_path.write_text(body_html)
             else:
                 results['failed'].append(email)
-                print(f"[{idx}/{total}] ✗ Failed to send to {email}")
+                logger.warning(f"[{idx}/{total}] ✗ Failed to send to {email}")
 
         return results
 
@@ -406,7 +253,7 @@ class SendGridEmailSender:
             return response.status_code == 202
 
         except Exception as e:
-            print(f"Failed to send email to {to_email}: {e}")
+            logger.error(f"Failed to send email to {to_email}: {e}")
             return False
 
     def send_bulk_emails(self, recipients: List[Dict],
@@ -462,7 +309,7 @@ class SendGridEmailSender:
 
             if success:
                 results['success'].append(email)
-                print(f"[{idx}/{total}] ✓ Sent to {email}")
+                logger.info(f"[{idx}/{total}] ✓ Sent to {email}")
 
                 # Save HTML copy if directory specified
                 if save_html_dir:
@@ -474,6 +321,6 @@ class SendGridEmailSender:
                     file_path.write_text(body_html)
             else:
                 results['failed'].append(email)
-                print(f"[{idx}/{total}] ✗ Failed to send to {email}")
+                logger.warning(f"[{idx}/{total}] ✗ Failed to send to {email}")
 
         return results

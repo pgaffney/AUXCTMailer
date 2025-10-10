@@ -5,6 +5,11 @@ import re
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from auxctmailer.exceptions import MemberDataError
+from auxctmailer.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class MemberDatabase:
     """Manages member records from CSV files with optional join on Member ID."""
@@ -202,13 +207,16 @@ class MemberDatabase:
             DataFrame containing joined member records
 
         Raises:
-            FileNotFoundError: If CSV files don't exist
+            MemberDataError: If CSV files don't exist or can't be loaded
         """
         if not self.training_csv.exists():
-            raise FileNotFoundError(f"Training database not found: {self.training_csv}")
+            raise MemberDataError(f"Training database not found: {self.training_csv}")
 
         # Load training data
-        training_df = pd.read_csv(self.training_csv)
+        try:
+            training_df = pd.read_csv(self.training_csv)
+        except Exception as e:
+            raise MemberDataError(f"Failed to load training CSV: {e}") from e
 
         # Clean up Member # column (strip whitespace)
         if 'Member #' in training_df.columns:
