@@ -140,15 +140,43 @@ def main():
         print(f"Template: {args.template}")
         print(f"Subject: {args.subject}")
 
-        # Show first recipient as example
-        if members:
-            print("\nExample for first recipient:")
-            example = normalize_template_context(members[0], args.courses_csv, args.extraction_date)
-            print(f"  To: {example.get('email') or example.get('Email', 'N/A')}")
-            subject = template.render_string(args.subject, **example)
-            print(f"  Subject: {subject}")
-            body = template.render(args.template, **example)
-            print(f"  Body preview: {body[:200]}...")
+        # If --save-html is specified with --dry-run, generate HTML files without sending
+        if args.save_html:
+            from pathlib import Path
+            save_path = Path(args.save_html)
+            save_path.mkdir(parents=True, exist_ok=True)
+
+            print(f"\n=== GENERATING HTML FILES ===")
+            print(f"Saving to: {save_path}")
+
+            for idx, member in enumerate(members, 1):
+                normalized = normalize_template_context(member, args.courses_csv, args.extraction_date)
+
+                # Render the email
+                body_html = template.render(args.template, **normalized)
+
+                # Save HTML file
+                member_num = normalized.get('member_num', 'unknown')
+                first_name = normalized.get('first_name', '')
+                last_name = normalized.get('last_name', '')
+                filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+                file_path = save_path / filename
+                file_path.write_text(body_html)
+
+                email = normalized.get('email') or normalized.get('Email', 'N/A')
+                print(f"[{idx}/{len(members)}] ✓ Saved HTML for {email} -> {filename}")
+
+            print(f"\n✓ Generated {len(members)} HTML files in {save_path}/")
+        else:
+            # Show first recipient as example
+            if members:
+                print("\nExample for first recipient:")
+                example = normalize_template_context(members[0], args.courses_csv, args.extraction_date)
+                print(f"  To: {example.get('email') or example.get('Email', 'N/A')}")
+                subject = template.render_string(args.subject, **example)
+                print(f"  Subject: {subject}")
+                body = template.render(args.template, **example)
+                print(f"  Body preview: {body[:200]}...")
 
         return 0
 
