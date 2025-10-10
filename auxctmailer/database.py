@@ -116,10 +116,15 @@ class MemberDatabase:
             training_df['Member #'] = training_df['Member #'].astype(str).str.strip()
 
         # Extract Unit Number from Unit/Member/Competency/Status field
-        if 'Unit/Member/Competency/Status  ↑' in training_df.columns:
-            training_df['Unit Number'] = training_df['Unit/Member/Competency/Status  ↑'].apply(self._extract_unit_number)
-        elif 'Unit/Member/Competency/Status' in training_df.columns:
-            training_df['Unit Number'] = training_df['Unit/Member/Competency/Status'].apply(self._extract_unit_number)
+        # Handle various column name variations (with/without arrow, with/without trailing spaces)
+        unit_field_col = None
+        for col in training_df.columns:
+            if 'Unit/Member/Competency/Status' in col:
+                unit_field_col = col
+                break
+
+        if unit_field_col:
+            training_df['Unit Number'] = training_df[unit_field_col].apply(self._extract_unit_number)
 
         # Create pretty version of unit number (DDD-VV-UU format)
         if 'Unit Number' in training_df.columns:
