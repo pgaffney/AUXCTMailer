@@ -141,9 +141,13 @@ class TestProcessCourseWarnings:
         assert len(result['courses_due_soon']) > 0
 
     def test_no_warnings_for_distant_courses(self, sample_courses_csv):
-        """Test no warnings for courses due >365 days."""
-        data = {'PAWR_810015': 400}  # Due in 400 days
-        result = process_course_warnings(data, sample_courses_csv, '10/01/2025')
+        """Test no warnings for courses due >365 days from today.
+
+        Use today as extraction date so days_from_extraction == days_from_today.
+        """
+        today = datetime.now().strftime("%m/%d/%Y")
+        data = {'PAWR_810015': 400}  # Due in 400 days from today
+        result = process_course_warnings(data, sample_courses_csv, today)
         assert result['has_overdue_courses'] is False
         assert result['has_due_soon_courses'] is False
 

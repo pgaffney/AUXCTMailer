@@ -1,6 +1,7 @@
 """Email sending and template rendering functionality."""
 
 import smtplib
+from abc import ABC, abstractmethod
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -21,7 +22,7 @@ logger = get_logger(__name__)
 
 # Note: normalize_template_context has been moved to auxctmailer/context.py for better organization
 # This import maintains backward compatibility
-__all__ = ['EmailTemplate', 'EmailSender', 'SendGridEmailSender', 'normalize_template_context']
+__all__ = ['EmailTemplate', 'EmailSenderBase', 'EmailSender', 'SendGridEmailSender', 'normalize_template_context']
 
 
 class EmailTemplate:
@@ -66,7 +67,102 @@ class EmailTemplate:
         return template.render(**context)
 
 
-class EmailSender:
+class EmailSenderBase(ABC):
+    """Abstract base class for email senders.
+
+    Provides common bulk email sending logic. Subclasses must implement
+    the send_email method for their specific transport (SMTP, SendGrid, etc.).
+    """
+
+    @abstractmethod
+    def send_email(self, to_email: str, subject: str,
+                   body_html: str, body_text: Optional[str] = None,
+                   from_email: Optional[str] = None) -> bool:
+        """Send a single email.
+
+        Args:
+            to_email: Recipient email address
+            subject: Email subject
+            body_html: HTML email body
+            body_text: Plain text email body (optional)
+            from_email: Sender email address
+
+        Returns:
+            True if sent successfully, False otherwise
+        """
+        pass
+
+    def send_bulk_emails(self, recipients: List[Dict],
+                        template: EmailTemplate,
+                        template_name: str,
+                        subject_template: str,
+                        from_email: Optional[str] = None,
+                        courses_csv: Optional[str] = None,
+                        extraction_date: Optional[str] = None,
+                        save_html_dir: Optional[str] = None) -> Dict[str, List[str]]:
+        """Send personalized emails to multiple recipients.
+
+        Args:
+            recipients: List of recipient dictionaries with email and template context
+            template: EmailTemplate instance
+            template_name: Name of email template file
+            subject_template: Subject line template string
+            from_email: Sender email (defaults to configured default)
+            courses_csv: Optional path to courses CSV file
+            extraction_date: Optional extraction date (MM/DD/YYYY)
+            save_html_dir: Optional directory to save HTML copies of sent emails
+
+        Returns:
+            Dictionary with 'success' and 'failed' lists of email addresses
+        """
+        results = {'success': [], 'failed': []}
+        total = len(recipients)
+
+        # Create save directory if specified
+        if save_html_dir:
+            save_path = Path(save_html_dir)
+            save_path.mkdir(parents=True, exist_ok=True)
+
+        for idx, recipient in enumerate(recipients, 1):
+            # Normalize keys for template compatibility
+            normalized_recipient = normalize_template_context(recipient, courses_csv, extraction_date)
+
+            email = normalized_recipient.get('email') or normalized_recipient.get('Email')
+            if not email:
+                continue
+
+            # Render subject and body with recipient data
+            subject = template.render_string(subject_template, **normalized_recipient)
+            body_html = template.render(template_name, **normalized_recipient)
+
+            # Send email using the subclass implementation
+            success = self.send_email(
+                to_email=email,
+                subject=subject,
+                body_html=body_html,
+                from_email=from_email
+            )
+
+            if success:
+                results['success'].append(email)
+                logger.info(f"[{idx}/{total}] ✓ Sent to {email}")
+
+                # Save HTML copy if directory specified
+                if save_html_dir:
+                    member_num = normalized_recipient.get('member_num', 'unknown')
+                    first_name = normalized_recipient.get('first_name', '')
+                    last_name = normalized_recipient.get('last_name', '')
+                    filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+                    file_path = save_path / filename
+                    file_path.write_text(body_html)
+            else:
+                results['failed'].append(email)
+                logger.warning(f"[{idx}/{total}] ✗ Failed to send to {email}")
+
+        return results
+
+
+class EmailSender(EmailSenderBase):
     """Handles email sending via SMTP."""
 
     def __init__(self, smtp_host: str, smtp_port: int,
@@ -134,77 +230,8 @@ class EmailSender:
             logger.error(f"Failed to send email to {to_email}: {e}")
             return False
 
-    def send_bulk_emails(self, recipients: List[Dict],
-                        template: EmailTemplate,
-                        template_name: str,
-                        subject_template: str,
-                        from_email: Optional[str] = None,
-                        courses_csv: Optional[str] = None,
-                        extraction_date: Optional[str] = None,
-                        save_html_dir: Optional[str] = None) -> Dict[str, List[str]]:
-        """Send personalized emails to multiple recipients.
 
-        Args:
-            recipients: List of recipient dictionaries with email and template context
-            template: EmailTemplate instance
-            template_name: Name of email template file
-            subject_template: Subject line template string
-            from_email: Sender email (defaults to username)
-            courses_csv: Optional path to courses CSV file
-            extraction_date: Optional extraction date (MM/DD/YYYY)
-            save_html_dir: Optional directory to save HTML copies of sent emails
-
-        Returns:
-            Dictionary with 'success' and 'failed' lists of email addresses
-        """
-        results = {'success': [], 'failed': []}
-        total = len(recipients)
-
-        # Create save directory if specified
-        if save_html_dir:
-            save_path = Path(save_html_dir)
-            save_path.mkdir(parents=True, exist_ok=True)
-
-        for idx, recipient in enumerate(recipients, 1):
-            # Normalize keys for template compatibility
-            normalized_recipient = normalize_template_context(recipient, courses_csv, extraction_date)
-
-            email = normalized_recipient.get('email') or normalized_recipient.get('Email')
-            if not email:
-                continue
-
-            # Render subject and body with recipient data
-            subject = template.render_string(subject_template, **normalized_recipient)
-            body_html = template.render(template_name, **normalized_recipient)
-
-            # Send email
-            success = self.send_email(
-                to_email=email,
-                subject=subject,
-                body_html=body_html,
-                from_email=from_email
-            )
-
-            if success:
-                results['success'].append(email)
-                logger.info(f"[{idx}/{total}] ✓ Sent to {email}")
-
-                # Save HTML copy if directory specified
-                if save_html_dir:
-                    member_num = normalized_recipient.get('member_num', 'unknown')
-                    first_name = normalized_recipient.get('first_name', '')
-                    last_name = normalized_recipient.get('last_name', '')
-                    filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
-                    file_path = save_path / filename
-                    file_path.write_text(body_html)
-            else:
-                results['failed'].append(email)
-                logger.warning(f"[{idx}/{total}] ✗ Failed to send to {email}")
-
-        return results
-
-
-class SendGridEmailSender:
+class SendGridEmailSender(EmailSenderBase):
     """Handles email sending via SendGrid API."""
 
     def __init__(self, api_key: str, from_email: str):
@@ -255,72 +282,3 @@ class SendGridEmailSender:
         except Exception as e:
             logger.error(f"Failed to send email to {to_email}: {e}")
             return False
-
-    def send_bulk_emails(self, recipients: List[Dict],
-                        template: EmailTemplate,
-                        template_name: str,
-                        subject_template: str,
-                        from_email: Optional[str] = None,
-                        courses_csv: Optional[str] = None,
-                        extraction_date: Optional[str] = None,
-                        save_html_dir: Optional[str] = None) -> Dict[str, List[str]]:
-        """Send personalized emails to multiple recipients via SendGrid.
-
-        Args:
-            recipients: List of recipient dictionaries with email and template context
-            template: EmailTemplate instance
-            template_name: Name of email template file
-            subject_template: Subject line template string
-            from_email: Sender email (defaults to configured from_email)
-            courses_csv: Optional path to courses CSV file
-            extraction_date: Optional extraction date (MM/DD/YYYY)
-            save_html_dir: Optional directory to save HTML copies of sent emails
-
-        Returns:
-            Dictionary with 'success' and 'failed' lists of email addresses
-        """
-        results = {'success': [], 'failed': []}
-        total = len(recipients)
-
-        # Create save directory if specified
-        if save_html_dir:
-            save_path = Path(save_html_dir)
-            save_path.mkdir(parents=True, exist_ok=True)
-
-        for idx, recipient in enumerate(recipients, 1):
-            # Normalize keys for template compatibility
-            normalized_recipient = normalize_template_context(recipient, courses_csv, extraction_date)
-
-            email = normalized_recipient.get('email') or normalized_recipient.get('Email')
-            if not email:
-                continue
-
-            # Render subject and body with recipient data
-            subject = template.render_string(subject_template, **normalized_recipient)
-            body_html = template.render(template_name, **normalized_recipient)
-
-            # Send email
-            success = self.send_email(
-                to_email=email,
-                subject=subject,
-                body_html=body_html,
-                from_email=from_email
-            )
-
-            if success:
-                results['success'].append(email)
-                logger.info(f"[{idx}/{total}] ✓ Sent to {email}")
-
-                # Save HTML copy if directory specified
-                if save_html_dir:
-                    member_num = normalized_recipient.get('member_num', 'unknown')
-                    first_name = normalized_recipient.get('first_name', '')
-                    last_name = normalized_recipient.get('last_name', '')
-                    filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
-                    file_path = save_path / filename
-                    file_path.write_text(body_html)
-            else:
-                results['failed'].append(email)
-                logger.warning(f"[{idx}/{total}] ✗ Failed to send to {email}")
-
-        return results

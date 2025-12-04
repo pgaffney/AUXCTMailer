@@ -10,6 +10,20 @@ from auxctmailer.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Course codes that have an annual deadline (12/31 of current year) when days_until_due is 0
+# These are special cases where 0 days means "due by end of year" rather than "overdue"
+#
+# TODO (Early 2026): Revisit this list to confirm these courses still require special treatment.
+#                    The AUXCT system may change how these courses are tracked.
+ANNUAL_DEADLINE_COURSES = {
+    'SP_100643',      # Suicide Prevention
+    'CRA_502319',     # Civil Rights Awareness
+    'SAPRR_502379',   # Sexual Assault Prevention, Response, and Recovery
+}
+
+# Number of days in the future to warn about upcoming course deadlines
+COURSE_WARNING_WINDOW_DAYS = 365
+
 
 def normalize_keys(data: Dict) -> Dict:
     """Normalize dictionary keys to be template-friendly.
@@ -190,10 +204,7 @@ def process_course_warnings(
                         days_from_today = (actual_due_date - now).days
 
                         # Special case: Certain courses with days=0 are due 12/31 of current year
-                        # SP_100643: Suicide Prevention
-                        # CRA_502319: Civil Rights Awareness
-                        # SAPRR_502379: Sexual Assault Prevention, Response, and Recovery
-                        if code in ['SP_100643', 'CRA_502319', 'SAPRR_502379'] and days == 0:
+                        if code in ANNUAL_DEADLINE_COURSES and days == 0:
                             year_end = datetime(now.year, 12, 31)
                             courses_due_soon.append({
                                 'code': code,
@@ -212,8 +223,8 @@ def process_course_warnings(
                                 'enrollment_code': enrollment_code,
                                 'days_overdue': abs(days_from_today)
                             })
-                        elif 0 <= days_from_today <= 365:
-                            # Course is due soon (within next 365 days)
+                        elif 0 <= days_from_today <= COURSE_WARNING_WINDOW_DAYS:
+                            # Course is due soon (within warning window)
                             courses_due_soon.append({
                                 'code': code,
                                 'title': title,
@@ -222,14 +233,12 @@ def process_course_warnings(
                                 'days_until_due': days_from_today,
                                 'due_date': actual_due_date.strftime("%m/%d/%Y")
                             })
-                        # If days_from_today > 365, don't add any warning
-                    except (ValueError, TypeError):
-                        logger.debug(f"Could not parse days_until_due for course {code}: {days_until_due}")
-                        pass
-        except Exception as e:
-            # If we can't load courses, just continue without course warnings
-            logger.warning(f"Failed to load courses CSV: {e}")
-            pass
+                        # If days_from_today > COURSE_WARNING_WINDOW_DAYS, don't add any warning
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Could not parse days_until_due for course {code}: {days_until_due} ({e})")
+        except (pd.errors.EmptyDataError, pd.errors.ParserError, FileNotFoundError, PermissionError) as e:
+            # Handle specific file/parsing errors - log and continue without course warnings
+            logger.error(f"Failed to load courses CSV '{courses_csv}': {e}")
 
     data['courses_overdue'] = courses_overdue
     data['courses_due_soon'] = courses_due_soon

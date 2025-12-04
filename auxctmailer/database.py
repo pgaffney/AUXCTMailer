@@ -200,6 +200,23 @@ class MemberDatabase:
 
         return None
 
+    def _process_fso_column(self, fso_col: str, email_df: Optional[pd.DataFrame] = None) -> None:
+        """Process an FSO column: create Pretty, Display, and Email columns.
+
+        Args:
+            fso_col: Name of the FSO column to process (e.g., 'FSO-IS', 'FSO-MT')
+            email_df: Optional DataFrame with member email information for email lookup
+        """
+        if self.units_df is None or fso_col not in self.units_df.columns:
+            return
+
+        self.units_df[f'{fso_col} Pretty'] = self.units_df[fso_col].apply(self._prettify_fso_name)
+        self.units_df[f'{fso_col} Display'] = self.units_df[fso_col].apply(self._create_fso_display_name)
+        if email_df is not None:
+            self.units_df[f'{fso_col} Email'] = self.units_df[fso_col].apply(
+                lambda name: self._lookup_fso_email(name, email_df)
+            )
+
     def load(self) -> pd.DataFrame:
         """Load and join member records from CSV files.
 
@@ -260,21 +277,9 @@ class MemberDatabase:
             if 'Unit Name' in self.units_df.columns:
                 self.units_df['Unit Name Pretty'] = self.units_df['Unit Name'].apply(self._prettify_unit_name)
 
-            # Create pretty versions of FSO names, display names, and look up emails
-            if 'FSO-IS' in self.units_df.columns:
-                self.units_df['FSO-IS Pretty'] = self.units_df['FSO-IS'].apply(self._prettify_fso_name)
-                self.units_df['FSO-IS Display'] = self.units_df['FSO-IS'].apply(self._create_fso_display_name)
-                if email_df is not None:
-                    self.units_df['FSO-IS Email'] = self.units_df['FSO-IS'].apply(
-                        lambda name: self._lookup_fso_email(name, email_df)
-                    )
-            if 'FSO-MT' in self.units_df.columns:
-                self.units_df['FSO-MT Pretty'] = self.units_df['FSO-MT'].apply(self._prettify_fso_name)
-                self.units_df['FSO-MT Display'] = self.units_df['FSO-MT'].apply(self._create_fso_display_name)
-                if email_df is not None:
-                    self.units_df['FSO-MT Email'] = self.units_df['FSO-MT'].apply(
-                        lambda name: self._lookup_fso_email(name, email_df)
-                    )
+            # Process FSO columns (Pretty, Display, and Email lookup)
+            self._process_fso_column('FSO-IS', email_df)
+            self._process_fso_column('FSO-MT', email_df)
 
             # Join units data to get unit names (both raw and pretty) and FSO contacts
             if 'Unit Number' in training_df.columns:
