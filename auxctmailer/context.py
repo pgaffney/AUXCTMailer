@@ -236,6 +236,12 @@ def process_course_warnings(
     data['has_overdue_courses'] = len(courses_overdue) > 0
     data['has_due_soon_courses'] = len(courses_due_soon) > 0
 
+    # Calculate minimum days until due for due-soon courses
+    if courses_due_soon:
+        data['min_days_until_due'] = min(c['days_until_due'] for c in courses_due_soon)
+    else:
+        data['min_days_until_due'] = None
+
     return data
 
 

@@ -35,7 +35,7 @@
 
         {% if status == 'Certified' %}
         <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
-            <strong>✓ Great news!</strong> Your core training is currently certified.{% if not has_overdue_courses and not has_due_soon_courses %} You do not have any core training courses due prior to {{ extraction_plus_365 }}.{% endif %}
+            <strong>✓ Great news!</strong> Your core training is currently certified.{% if has_overdue_courses %} However, you have overdue courses that require immediate attention to maintain your certification. See the details below.{% elif not has_due_soon_courses %} You do not have any core training courses due prior to {{ extraction_plus_365 }}.{% elif min_days_until_due is not none and min_days_until_due <= 90 %} However, you have courses due within the next {{ min_days_until_due }} days - to maintain your certification, you must complete those courses by the deadlines. Your courses to complete are listed below.{% endif %}
         </div>
         {% else %}
         <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
@@ -62,7 +62,7 @@
             <ul style="margin: 5px 0; padding-left: 20px;">
             {% for course in courses_overdue %}
                 <li>
-                    <strong>{{ course.title }}</strong> - Overdue by {{ course.days_overdue }} days - <a href="{{ course.url }}" style="color: #dc3545;">Complete Now</a> (Enrollment Key: {{ course.enrollment_code }})
+                    <strong>{{ course.title }}</strong> - Overdue by {{ course.days_overdue }} days - <a href="{{ course.url }}" style="color: #dc3545;">click this link to take the course</a> (Enrollment Key: {{ course.enrollment_code }})
                 </li>
             {% endfor %}
             </ul>
@@ -80,7 +80,7 @@
             <ul style="margin: 5px 0; padding-left: 20px;">
             {% for course in courses_due_soon %}
                 <li>
-                    <strong>{{ course.title }}</strong> - Due {{ course.due_date }} ({{ course.days_until_due }} days) - <a href="{{ course.url }}" style="color: #856404;">View Course</a> (Enrollment Key: {{ course.enrollment_code }})
+                    <strong>{{ course.title }}</strong> - Due {{ course.due_date }} ({{ course.days_until_due }} days) - <a href="{{ course.url }}" style="color: #856404;">click this link to take the course</a> (Enrollment Key: {{ course.enrollment_code }})
                 </li>
             {% endfor %}
             </ul>
