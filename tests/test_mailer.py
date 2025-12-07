@@ -2,7 +2,169 @@
 
 import pytest
 
-from auxctmailer.mailer import EmailTemplate
+from unittest.mock import patch, MagicMock
+
+from auxctmailer.mailer import EmailTemplate, EmailSender
+
+
+class TestEmailSender:
+    """Tests for the EmailSender (SMTP) class."""
+
+    def test_send_email_success(self):
+        """Successful email send returns True."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            result = sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test Subject",
+                body_html="<p>Hello</p>",
+            )
+
+            assert result is True
+            mock_server.send_message.assert_called_once()
+            mock_server.quit.assert_called_once()
+
+    def test_send_email_with_tls_calls_starttls(self):
+        """When use_tls=True, starttls() is called."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+                use_tls=True,
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+            )
+
+            mock_server.starttls.assert_called_once()
+
+    def test_send_email_without_tls_skips_starttls(self):
+        """When use_tls=False, starttls() is not called."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+                use_tls=False,
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+            )
+
+            mock_server.starttls.assert_not_called()
+
+    def test_send_email_connection_failure_returns_false(self):
+        """Connection failure returns False."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_smtp_class.side_effect = ConnectionRefusedError("Connection refused")
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            result = sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+            )
+
+            assert result is False
+
+    def test_send_email_auth_failure_returns_false(self):
+        """Authentication failure returns False."""
+        from smtplib import SMTPAuthenticationError
+
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+            mock_server.login.side_effect = SMTPAuthenticationError(535, b"Auth failed")
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="wrongpassword",
+            )
+            result = sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+            )
+
+            assert result is False
+
+    def test_send_email_default_from_uses_username(self):
+        """Without from_email, sender uses username."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+            )
+
+            # Check that send_message was called with a message having From = username
+            call_args = mock_server.send_message.call_args
+            msg = call_args[0][0]
+            assert msg["From"] == "user@example.com"
+
+    def test_send_email_with_plain_text_attaches_both(self):
+        """Both HTML and plain text are attached when body_text provided."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+                body_text="Hello",
+            )
+
+            call_args = mock_server.send_message.call_args
+            msg = call_args[0][0]
+            # Message should be multipart with both text/plain and text/html
+            payloads = msg.get_payload()
+            content_types = [p.get_content_type() for p in payloads]
+            assert "text/plain" in content_types
+            assert "text/html" in content_types
 
 
 class TestEmailTemplate:
