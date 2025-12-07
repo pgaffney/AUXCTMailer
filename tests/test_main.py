@@ -281,6 +281,28 @@ class TestMainCLI:
         # Verify load_email_config was called
         mock_load_config.assert_called_once()
 
+    def test_sendgrid_api_client_is_mocked_during_test(self, fixtures_dir, tmp_template_dir, monkeypatch, mock_sendgrid_api):
+        """SendGrid API calls go through mock, not real API."""
+        monkeypatch.setattr(sys, 'argv', [
+            'auxctmailer',
+            '--training-csv', str(fixtures_dir / 'sample_training.csv'),
+            '--email-csv', str(fixtures_dir / 'sample_email.csv'),
+            '--template', 'test_template.html',
+            '--subject', 'Test Subject',
+            '--template-dir', tmp_template_dir,
+        ])
+
+        # Setup SendGrid config via environment
+        monkeypatch.setenv('EMAIL_PROVIDER', 'sendgrid')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key_for_test')
+        monkeypatch.setenv('FROM_EMAIL', 'test@example.com')
+
+        from auxctmailer.main import main
+        main()
+
+        # Verify the mock was called (proving real API was not used)
+        assert mock_sendgrid_api.send.call_count == 3
+
 
 class TestCreateEmailSender:
     """Tests for the email sender factory function."""

@@ -2,7 +2,8 @@
 
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+import importlib
 
 
 @pytest.fixture
@@ -45,6 +46,29 @@ def mock_smtp():
 def mock_sendgrid_client():
     """Return a mock SendGrid client for testing email sending."""
     return MagicMock()
+
+
+@pytest.fixture
+def mock_sendgrid_api():
+    """Patch SendGrid API at module level and reload dependent modules.
+
+    Yields a mock client instance with send() returning 202 status.
+    Use this fixture when testing code that sends emails via SendGrid.
+    """
+    with patch('sendgrid.SendGridAPIClient') as mock_sg_client:
+        mock_client_instance = MagicMock()
+        mock_sg_client.return_value = mock_client_instance
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+        mock_client_instance.send.return_value = mock_response
+
+        # Reload modules to pick up the patched SendGridAPIClient
+        import auxctmailer.mailer
+        import auxctmailer.main
+        importlib.reload(auxctmailer.mailer)
+        importlib.reload(auxctmailer.main)
+
+        yield mock_client_instance
 
 
 @pytest.fixture
