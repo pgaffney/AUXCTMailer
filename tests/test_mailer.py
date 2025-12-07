@@ -304,6 +304,183 @@ class TestEmailSender:
             assert "text/html" in content_types
 
 
+class TestSendBulkEmails:
+    """Tests for the send_bulk_emails orchestration method."""
+
+    def test_bulk_emails_multiple_recipients_all_succeed(self, tmp_template_dir):
+        """All recipients receive emails successfully."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            template = EmailTemplate(template_dir=tmp_template_dir)
+            recipients = [
+                {"email": "a@example.com", "name": "Alice"},
+                {"email": "b@example.com", "name": "Bob"},
+                {"email": "c@example.com", "name": "Carol"},
+            ]
+
+            results = sender.send_bulk_emails(
+                recipients=recipients,
+                template=template,
+                template_name="test_template.html",
+                subject_template="Hello {{ name }}",
+            )
+
+            assert len(results["success"]) == 3
+            assert len(results["failed"]) == 0
+            assert "a@example.com" in results["success"]
+            assert "b@example.com" in results["success"]
+            assert "c@example.com" in results["success"]
+
+    def test_bulk_emails_skip_missing_email(self, tmp_template_dir):
+        """Recipients without email addresses are skipped."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            template = EmailTemplate(template_dir=tmp_template_dir)
+            recipients = [
+                {"email": "a@example.com", "name": "Alice"},
+                {"name": "NoEmail"},  # No email field
+                {"email": "", "name": "EmptyEmail"},  # Empty email
+            ]
+
+            results = sender.send_bulk_emails(
+                recipients=recipients,
+                template=template,
+                template_name="test_template.html",
+                subject_template="Hello",
+            )
+
+            assert len(results["success"]) == 1
+            assert results["success"] == ["a@example.com"]
+
+    def test_bulk_emails_saves_html_files(self, tmp_template_dir, tmp_path):
+        """HTML files are saved when save_html_dir is provided."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            template = EmailTemplate(template_dir=tmp_template_dir)
+            recipients = [
+                {"email": "a@example.com", "first_name": "Alice", "last_name": "Smith", "member_num": "123"},
+            ]
+
+            save_dir = tmp_path / "saved_emails"
+            sender.send_bulk_emails(
+                recipients=recipients,
+                template=template,
+                template_name="test_template.html",
+                subject_template="Hello",
+                save_html_dir=str(save_dir),
+            )
+
+            saved_file = save_dir / "123_Alice_Smith.html"
+            assert saved_file.exists()
+
+    def test_bulk_emails_mixed_results(self, tmp_template_dir):
+        """Mixed success/failure results in correct counts."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+            # First send succeeds, second fails
+            mock_server.send_message.side_effect = [None, Exception("Failed"), None]
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            template = EmailTemplate(template_dir=tmp_template_dir)
+            recipients = [
+                {"email": "a@example.com", "name": "Alice"},
+                {"email": "b@example.com", "name": "Bob"},
+                {"email": "c@example.com", "name": "Carol"},
+            ]
+
+            results = sender.send_bulk_emails(
+                recipients=recipients,
+                template=template,
+                template_name="test_template.html",
+                subject_template="Hello",
+            )
+
+            assert len(results["success"]) == 2
+            assert len(results["failed"]) == 1
+            assert "b@example.com" in results["failed"]
+
+    def test_bulk_emails_renders_subject_per_recipient(self, tmp_template_dir):
+        """Subject template is rendered for each recipient."""
+        with patch("auxctmailer.mailer.smtplib.SMTP") as mock_smtp_class:
+            mock_server = MagicMock()
+            mock_smtp_class.return_value = mock_server
+
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            template = EmailTemplate(template_dir=tmp_template_dir)
+            recipients = [
+                {"email": "a@example.com", "name": "Alice"},
+                {"email": "b@example.com", "name": "Bob"},
+            ]
+
+            sender.send_bulk_emails(
+                recipients=recipients,
+                template=template,
+                template_name="test_template.html",
+                subject_template="Hello {{ name }}",
+            )
+
+            # Check that subjects were personalized
+            calls = mock_server.send_message.call_args_list
+            subjects = [call[0][0]["Subject"] for call in calls]
+            assert "Hello Alice" in subjects
+            assert "Hello Bob" in subjects
+
+    def test_bulk_emails_empty_recipients_returns_empty(self, tmp_template_dir):
+        """Empty recipient list returns empty results."""
+        with patch("auxctmailer.mailer.smtplib.SMTP"):
+            sender = EmailSender(
+                smtp_host="smtp.example.com",
+                smtp_port=587,
+                username="user@example.com",
+                password="password123",
+            )
+            template = EmailTemplate(template_dir=tmp_template_dir)
+
+            results = sender.send_bulk_emails(
+                recipients=[],
+                template=template,
+                template_name="test_template.html",
+                subject_template="Hello",
+            )
+
+            assert results == {"success": [], "failed": []}
+
+
 class TestEmailTemplate:
     """Tests for the EmailTemplate class."""
 
