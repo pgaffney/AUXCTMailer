@@ -4,7 +4,144 @@ import pytest
 
 from unittest.mock import patch, MagicMock
 
-from auxctmailer.mailer import EmailTemplate, EmailSender
+from auxctmailer.mailer import EmailTemplate, EmailSender, SendGridEmailSender
+
+
+class TestSendGridEmailSender:
+    """Tests for the SendGridEmailSender class."""
+
+    def test_send_email_success_returns_true(self):
+        """SendGrid 202 response returns True."""
+        with patch("auxctmailer.mailer.SendGridAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.status_code = 202
+            mock_client.send.return_value = mock_response
+
+            sender = SendGridEmailSender(
+                api_key="SG.test_key",
+                from_email="sender@example.com",
+            )
+            result = sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test Subject",
+                body_html="<p>Hello</p>",
+            )
+
+            assert result is True
+            mock_client.send.assert_called_once()
+
+    def test_send_email_non_202_response_returns_false(self):
+        """SendGrid non-202 response returns False."""
+        with patch("auxctmailer.mailer.SendGridAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.status_code = 400
+            mock_client.send.return_value = mock_response
+
+            sender = SendGridEmailSender(
+                api_key="SG.test_key",
+                from_email="sender@example.com",
+            )
+            result = sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test Subject",
+                body_html="<p>Hello</p>",
+            )
+
+            assert result is False
+
+    def test_send_email_api_exception_returns_false(self):
+        """SendGrid API exception returns False."""
+        with patch("auxctmailer.mailer.SendGridAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_client.send.side_effect = Exception("API Error")
+
+            sender = SendGridEmailSender(
+                api_key="SG.test_key",
+                from_email="sender@example.com",
+            )
+            result = sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test Subject",
+                body_html="<p>Hello</p>",
+            )
+
+            assert result is False
+
+    def test_send_email_default_from_uses_configured_email(self):
+        """Without from_email param, uses configured from_email."""
+        with patch("auxctmailer.mailer.SendGridAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.status_code = 202
+            mock_client.send.return_value = mock_response
+
+            sender = SendGridEmailSender(
+                api_key="SG.test_key",
+                from_email="default@example.com",
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+            )
+
+            # Verify the Mail object was created with the default from_email
+            call_args = mock_client.send.call_args
+            mail_obj = call_args[0][0]
+            assert mail_obj.from_email.email == "default@example.com"
+
+    def test_send_email_with_plain_text_sets_content(self):
+        """Plain text content is set when body_text provided."""
+        with patch("auxctmailer.mailer.SendGridAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.status_code = 202
+            mock_client.send.return_value = mock_response
+
+            sender = SendGridEmailSender(
+                api_key="SG.test_key",
+                from_email="sender@example.com",
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test",
+                body_html="<p>Hello</p>",
+                body_text="Hello",
+            )
+
+            call_args = mock_client.send.call_args
+            mail_obj = call_args[0][0]
+            assert mail_obj.plain_text_content is not None
+
+    def test_mail_object_has_correct_fields(self):
+        """Mail object has correct To, Subject, and HTML content."""
+        with patch("auxctmailer.mailer.SendGridAPIClient") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.status_code = 202
+            mock_client.send.return_value = mock_response
+
+            sender = SendGridEmailSender(
+                api_key="SG.test_key",
+                from_email="sender@example.com",
+            )
+            sender.send_email(
+                to_email="recipient@example.com",
+                subject="Test Subject",
+                body_html="<p>Hello World</p>",
+            )
+
+            call_args = mock_client.send.call_args
+            mail_obj = call_args[0][0]
+            assert mail_obj.subject.subject == "Test Subject"
 
 
 class TestEmailSender:
