@@ -1,9 +1,64 @@
 """Tests for main.py CLI entry point."""
 
+import argparse
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
+
+from auxctmailer.config import EmailConfig
+from auxctmailer.exceptions import ConfigError
+
+
+class TestBuildArgumentParser:
+    """Tests for the argument parser builder."""
+
+    def test_build_argument_parser_returns_argument_parser(self):
+        """build_argument_parser() returns a configured ArgumentParser."""
+        from auxctmailer.main import build_argument_parser
+
+        parser = build_argument_parser()
+
+        assert isinstance(parser, argparse.ArgumentParser)
+
+
+class TestSetupAppLogging:
+    """Tests for the logging setup helper."""
+
+    def test_setup_app_logging_returns_logger(self):
+        """setup_app_logging() returns a logger instance."""
+        import logging
+        from auxctmailer.main import setup_app_logging
+
+        logger = setup_app_logging(verbose=False, quiet=False)
+
+        assert isinstance(logger, logging.Logger)
+
+
+class TestHandleDryRun:
+    """Tests for the dry-run handler."""
+
+    def test_handle_dry_run_returns_zero(self, tmp_template_dir):
+        """handle_dry_run() returns 0 on success."""
+        import logging
+        from auxctmailer.main import handle_dry_run
+        from auxctmailer.mailer import EmailTemplate
+
+        # Minimal args-like object
+        class Args:
+            template = 'test_template.html'
+            subject = 'Test Subject'
+            save_html = None
+            courses_csv = None
+            extraction_date = None
+
+        template = EmailTemplate(tmp_template_dir)
+        members = [{'First Name': 'John', 'Last Name': 'Doe', 'Email': 'john@example.com'}]
+        logger = logging.getLogger('test')
+
+        result = handle_dry_run(Args(), members, template, logger)
+
+        assert result == 0
 
 
 class TestMainCLI:
@@ -186,3 +241,102 @@ class TestMainCLI:
         result = main()
 
         assert result == 0
+
+    def test_uses_load_email_config_when_not_dry_run(self, fixtures_dir, tmp_template_dir, monkeypatch):
+        """main() uses load_email_config() from config module when not in dry-run mode."""
+        monkeypatch.setattr(sys, 'argv', [
+            'auxctmailer',
+            '--training-csv', str(fixtures_dir / 'sample_training.csv'),
+            '--email-csv', str(fixtures_dir / 'sample_email.csv'),
+            '--template', 'test_template.html',
+            '--subject', 'Test Subject',
+            '--template-dir', tmp_template_dir,
+        ])
+
+        # Setup valid SendGrid config
+        monkeypatch.setenv('EMAIL_PROVIDER', 'sendgrid')
+        monkeypatch.setenv('SENDGRID_API_KEY', 'SG.test_key')
+        monkeypatch.setenv('FROM_EMAIL', 'test@example.com')
+
+        from auxctmailer.main import main
+
+        with patch('auxctmailer.main.load_email_config') as mock_load_config, \
+             patch('auxctmailer.main.load_dotenv'), \
+             patch('auxctmailer.main.SendGridEmailSender') as mock_sender:
+            # Return a valid config
+            mock_config = EmailConfig(
+                provider='sendgrid',
+                from_email='test@example.com',
+                sendgrid_api_key='SG.test_key'
+            )
+            mock_load_config.return_value = mock_config
+
+            # Mock the sender to avoid actual email sending
+            mock_sender_instance = MagicMock()
+            mock_sender_instance.send_bulk_emails.return_value = {'success': [], 'failed': []}
+            mock_sender.return_value = mock_sender_instance
+
+            result = main()
+
+        # Verify load_email_config was called
+        mock_load_config.assert_called_once()
+
+
+class TestCreateEmailSender:
+    """Tests for the email sender factory function."""
+
+    def test_create_email_sender_returns_sendgrid_for_sendgrid_provider(self):
+        """create_email_sender() returns SendGridEmailSender for sendgrid provider."""
+        from auxctmailer.main import create_email_sender
+        from auxctmailer.config import EmailConfig
+        from auxctmailer.mailer import SendGridEmailSender
+
+        config = EmailConfig(
+            provider='sendgrid',
+            from_email='test@example.com',
+            sendgrid_api_key='SG.test_key'
+        )
+
+        sender = create_email_sender(config)
+
+        assert isinstance(sender, SendGridEmailSender)
+
+    def test_create_email_sender_returns_smtp_for_smtp_provider(self):
+        """create_email_sender() returns EmailSender for smtp provider."""
+        from auxctmailer.main import create_email_sender
+        from auxctmailer.config import EmailConfig
+        from auxctmailer.mailer import EmailSender
+
+        config = EmailConfig(
+            provider='smtp',
+            from_email='test@example.com',
+            smtp_host='smtp.example.com',
+            smtp_port=587,
+            smtp_user='user',
+            smtp_password='pass',
+            smtp_use_tls=True
+        )
+
+        sender = create_email_sender(config)
+
+        assert isinstance(sender, EmailSender)
+
+
+class TestParseFilterCriteria:
+    """Tests for the filter criteria parser."""
+
+    def test_parse_filter_criteria_returns_empty_dict_for_none(self):
+        """parse_filter_criteria() returns empty dict when input is None."""
+        from auxctmailer.main import parse_filter_criteria
+
+        result = parse_filter_criteria(None)
+
+        assert result == {}
+
+    def test_parse_filter_criteria_parses_key_value_pairs(self):
+        """parse_filter_criteria() parses 'KEY=VALUE' format."""
+        from auxctmailer.main import parse_filter_criteria
+
+        result = parse_filter_criteria(['Status=Certified'])
+
+        assert result == {'Status': 'Certified'}

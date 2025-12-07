@@ -51,6 +51,10 @@ logs/
 
 # Test outputs
 test_output/
+.coverage
+
+# Numbers spreadsheets (contain member data)
+*.numbers
 
 # Sent email archives (contain member data)
 sent_emails_*/

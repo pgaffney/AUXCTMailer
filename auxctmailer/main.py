@@ -1,7 +1,6 @@
 """Main entry point for AUXCTMailer."""
 
 import argparse
-import os
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
@@ -9,10 +8,40 @@ from dotenv import load_dotenv
 from auxctmailer.database import MemberDatabase
 from auxctmailer.mailer import EmailSender, SendGridEmailSender, EmailTemplate, normalize_template_context
 from auxctmailer.logger import setup_logger, get_logger
+from auxctmailer.config import load_email_config, EmailConfig
+from auxctmailer.exceptions import ConfigError
 
 
-def main():
-    """Main application entry point."""
+def parse_filter_criteria(filter_args: list[str] | None) -> dict:
+    """Parse filter arguments into a criteria dictionary."""
+    if not filter_args:
+        return {}
+    criteria = {}
+    for f in filter_args:
+        if '=' in f:
+            key, value = f.split('=', 1)
+            criteria[key] = value
+    return criteria
+
+
+def create_email_sender(config: EmailConfig):
+    """Create the appropriate email sender based on configuration."""
+    if config.provider == 'sendgrid':
+        return SendGridEmailSender(
+            api_key=config.sendgrid_api_key,
+            from_email=config.from_email
+        )
+    return EmailSender(
+        smtp_host=config.smtp_host,
+        smtp_port=config.smtp_port,
+        username=config.smtp_user,
+        password=config.smtp_password,
+        use_tls=config.smtp_use_tls
+    )
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Build and return the argument parser for the CLI."""
     parser = argparse.ArgumentParser(
         description='Send custom emails to AUXCT members'
     )
@@ -77,13 +106,79 @@ def main():
         action='store_true',
         help='Minimal logging (WARNING level only)'
     )
+    return parser
 
-    args = parser.parse_args()
 
-    # Setup logging
-    if args.quiet:
+def handle_dry_run(args, members: list, template: EmailTemplate, logger: logging.Logger) -> int:
+    """Handle dry-run mode: preview or generate HTML files without sending.
+
+    Args:
+        args: Parsed command line arguments
+        members: List of member dictionaries
+        template: EmailTemplate instance
+        logger: Logger instance
+
+    Returns:
+        Exit code (0 for success)
+    """
+    logger.info("\n=== DRY RUN MODE ===")
+    logger.info(f"Would send to {len(members)} recipients")
+    logger.info(f"Template: {args.template}")
+    logger.info(f"Subject: {args.subject}")
+
+    # If --save-html is specified with --dry-run, generate HTML files without sending
+    if args.save_html:
+        save_path = Path(args.save_html)
+        save_path.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"\n=== GENERATING HTML FILES ===")
+        logger.info(f"Saving to: {save_path}")
+
+        for idx, member in enumerate(members, 1):
+            normalized = normalize_template_context(member, args.courses_csv, args.extraction_date)
+
+            # Render the email
+            body_html = template.render(args.template, **normalized)
+
+            # Save HTML file
+            member_num = normalized.get('member_num', 'unknown')
+            first_name = normalized.get('first_name', '')
+            last_name = normalized.get('last_name', '')
+            filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+            file_path = save_path / filename
+            file_path.write_text(body_html)
+
+            email = normalized.get('email') or normalized.get('Email', 'N/A')
+            logger.info(f"[{idx}/{len(members)}] ✓ Saved HTML for {email} -> {filename}")
+
+        logger.info(f"\n✓ Generated {len(members)} HTML files in {save_path}/")
+    else:
+        # Show first recipient as example
+        if members:
+            logger.info("\nExample for first recipient:")
+            example = normalize_template_context(members[0], args.courses_csv, args.extraction_date)
+            logger.info(f"  To: {example.get('email') or example.get('Email', 'N/A')}")
+            subject = template.render_string(args.subject, **example)
+            logger.info(f"  Subject: {subject}")
+            body = template.render(args.template, **example)
+            logger.info(f"  Body preview: {body[:200]}...")
+
+    return 0
+
+
+def setup_app_logging(verbose: bool, quiet: bool) -> logging.Logger:
+    """Configure application logging based on verbosity flags.
+
+    Args:
+        verbose: Enable DEBUG level logging
+        quiet: Enable WARNING level only logging
+
+    Returns:
+        Logger instance for the main module
+    """
+    if quiet:
         log_level = logging.WARNING
-    elif args.verbose:
+    elif verbose:
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
@@ -91,44 +186,27 @@ def main():
     setup_logger("auxctmailer", level=log_level)
     setup_logger("auxctmailer.database", level=log_level)
     setup_logger("auxctmailer.mailer", level=log_level)
-    logger = get_logger(__name__)
+    return get_logger(__name__)
+
+
+def main():
+    """Main application entry point."""
+    parser = build_argument_parser()
+    args = parser.parse_args()
+
+    logger = setup_app_logging(verbose=args.verbose, quiet=args.quiet)
 
     # Load environment variables from .env file
     load_dotenv()
 
-    # Get email provider configuration
-    email_provider = os.getenv('EMAIL_PROVIDER', 'sendgrid').lower()
-    from_email = os.getenv('FROM_EMAIL')
-
-    # Validate configuration (not required for dry-run)
+    # Load and validate email configuration (not required for dry-run)
+    email_config = None
     if not args.dry_run:
-        if email_provider == 'sendgrid':
-            sendgrid_api_key = os.getenv('SENDGRID_API_KEY')
-            if not sendgrid_api_key or not from_email:
-                logger.error("SendGrid configuration missing in environment variables")
-                logger.error("Required: SENDGRID_API_KEY, FROM_EMAIL")
-                logger.info("(Use --dry-run to test without email configuration)")
-                return 1
-        elif email_provider == 'smtp':
-            smtp_host = os.getenv('SMTP_HOST')
-            smtp_port = int(os.getenv('SMTP_PORT', '587'))
-            smtp_user = os.getenv('SMTP_USER')
-            smtp_pass = os.getenv('SMTP_PASSWORD')
-            smtp_use_tls = os.getenv('SMTP_USE_TLS', 'true').lower() in ('true', '1', 'yes')
-
-            # FROM_EMAIL defaults to SMTP_USER if not specified
-            if not from_email:
-                from_email = smtp_user
-
-            if not all([smtp_host, smtp_user, smtp_pass]):
-                logger.error("SMTP configuration missing in environment variables")
-                logger.error("Required: SMTP_HOST, SMTP_USER, SMTP_PASSWORD")
-                logger.info("Optional: SMTP_PORT (default: 587), SMTP_USE_TLS (default: true), FROM_EMAIL (default: SMTP_USER)")
-                logger.info("(Use --dry-run to test without SMTP configuration)")
-                return 1
-        else:
-            logger.error(f"Unknown email provider '{email_provider}'")
-            logger.error("Set EMAIL_PROVIDER to 'sendgrid' or 'smtp'")
+        try:
+            email_config = load_email_config()
+        except ConfigError as e:
+            logger.error(str(e))
+            logger.info("(Use --dry-run to test without email configuration)")
             return 1
 
     # Load member database
@@ -139,13 +217,8 @@ def main():
     db = MemberDatabase(args.training_csv, args.email_csv, args.units_csv)
 
     # Filter members if criteria provided
-    if args.filter:
-        criteria = {}
-        for f in args.filter:
-            if '=' in f:
-                key, value = f.split('=', 1)
-                criteria[key] = value
-
+    criteria = parse_filter_criteria(args.filter)
+    if criteria:
         members = db.filter_members(**criteria)
         logger.info(f"Found {len(members)} members matching filter criteria")
     else:
@@ -160,74 +233,19 @@ def main():
     template = EmailTemplate(args.template_dir)
 
     if args.dry_run:
-        logger.info("\n=== DRY RUN MODE ===")
-        logger.info(f"Would send to {len(members)} recipients")
-        logger.info(f"Template: {args.template}")
-        logger.info(f"Subject: {args.subject}")
-
-        # If --save-html is specified with --dry-run, generate HTML files without sending
-        if args.save_html:
-            from pathlib import Path
-            save_path = Path(args.save_html)
-            save_path.mkdir(parents=True, exist_ok=True)
-
-            logger.info(f"\n=== GENERATING HTML FILES ===")
-            logger.info(f"Saving to: {save_path}")
-
-            for idx, member in enumerate(members, 1):
-                normalized = normalize_template_context(member, args.courses_csv, args.extraction_date)
-
-                # Render the email
-                body_html = template.render(args.template, **normalized)
-
-                # Save HTML file
-                member_num = normalized.get('member_num', 'unknown')
-                first_name = normalized.get('first_name', '')
-                last_name = normalized.get('last_name', '')
-                filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
-                file_path = save_path / filename
-                file_path.write_text(body_html)
-
-                email = normalized.get('email') or normalized.get('Email', 'N/A')
-                logger.info(f"[{idx}/{len(members)}] ✓ Saved HTML for {email} -> {filename}")
-
-            logger.info(f"\n✓ Generated {len(members)} HTML files in {save_path}/")
-        else:
-            # Show first recipient as example
-            if members:
-                logger.info("\nExample for first recipient:")
-                example = normalize_template_context(members[0], args.courses_csv, args.extraction_date)
-                logger.info(f"  To: {example.get('email') or example.get('Email', 'N/A')}")
-                subject = template.render_string(args.subject, **example)
-                logger.info(f"  Subject: {subject}")
-                body = template.render(args.template, **example)
-                logger.info(f"  Body preview: {body[:200]}...")
-
-        return 0
+        return handle_dry_run(args, members, template, logger)
 
     # Send emails using configured provider
-    logger.info(f"\nSending emails via {email_provider.upper()}...")
+    logger.info(f"\nSending emails via {email_config.provider.upper()}...")
 
-    if email_provider == 'sendgrid':
-        sender = SendGridEmailSender(
-            api_key=sendgrid_api_key,
-            from_email=from_email
-        )
-    else:  # smtp
-        sender = EmailSender(
-            smtp_host=smtp_host,
-            smtp_port=smtp_port,
-            username=smtp_user,
-            password=smtp_pass,
-            use_tls=smtp_use_tls
-        )
+    sender = create_email_sender(email_config)
 
     results = sender.send_bulk_emails(
         recipients=members,
         template=template,
         template_name=args.template,
         subject_template=args.subject,
-        from_email=from_email,
+        from_email=email_config.from_email,
         courses_csv=args.courses_csv,
         extraction_date=args.extraction_date,
         save_html_dir=args.save_html
