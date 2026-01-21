@@ -398,6 +398,10 @@ def main():
     for member in filtered_members:
         ctx = member.to_template_context()
 
+        # Default FSO contacts (may be overridden below if officers file provided)
+        ctx['fso_is'] = {}
+        ctx['fso_mt'] = {}
+
         # Add unit details if available
         if member.unit_number in unit_details:
             unit = unit_details[member.unit_number]

@@ -101,15 +101,19 @@
             {# Summary Message #}
             {% if has_red_tasks %}
             <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0;">
-                <strong>Action Required:</strong> You have tasks that need immediate attention. Please review the sections marked in red below.
+                <strong>Action Required:</strong> You have expired tasks that need immediate attention. Please review the sections marked in red below.
             </div>
             {% elif has_yellow_tasks %}
             <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
-                <strong>Heads Up:</strong> You have tasks due before the end of this calendar year. Please review the sections marked in yellow below.
+                <strong>Heads Up:</strong> You have tasks not yet completed. Please review the sections marked in yellow below.
+            </div>
+            {% elif has_in_progress_tasks %}
+            <div style="background-color: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0;">
+                <strong>In Progress:</strong> You have tasks in progress. Keep up the good work!
             </div>
             {% else %}
             <div style="background-color: #d4edda; border-left: 4px solid #28a745; padding: 15px; margin: 20px 0;">
-                <strong>Great news!</strong> All your tasks are in good standing. No action required at this time.
+                <strong>Great news!</strong> All your tasks are complete. No action required at this time.
             </div>
             {% endif %}
 
@@ -124,6 +128,12 @@
             {% elif comp.overall_urgency == 'yellow' %}
             <div style="background-color: #fff8e1; border: 1px solid #ffecb3; border-left: 4px solid #ffc107; border-radius: 5px; padding: 20px; margin: 20px 0;">
                 <h4 style="color: #856404; margin: 0 0 10px 0;">
+                    {{ comp.competency_display_name or comp.competency_type }}
+                    <span style="font-weight: normal; font-size: 12px; margin-left: 10px;">({{ comp.competency_status }})</span>
+                </h4>
+            {% elif comp.overall_urgency == 'in_progress' %}
+            <div style="background-color: #e3f2fd; border: 1px solid #bbdefb; border-left: 4px solid #2196f3; border-radius: 5px; padding: 20px; margin: 20px 0;">
+                <h4 style="color: #1565c0; margin: 0 0 10px 0;">
                     {{ comp.competency_display_name or comp.competency_type }}
                     <span style="font-weight: normal; font-size: 12px; margin-left: 10px;">({{ comp.competency_status }})</span>
                 </h4>
@@ -178,15 +188,13 @@
                             </td>
                             <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05); text-align: center;">
                                 {% if task.urgency == 'red' %}
-                                    {% if task.days_overdue %}
-                                    <span style="color: #dc3545; font-weight: bold;">Overdue ({{ task.days_overdue }} days)</span>
-                                    {% else %}
-                                    <span style="color: #dc3545; font-weight: bold;">Due Soon ({{ task.days_until_due }} days)</span>
-                                    {% endif %}
+                                    <span style="color: #dc3545; font-weight: bold;">Expired</span>
                                 {% elif task.urgency == 'yellow' %}
-                                    <span style="color: #856404;">Due This Year</span>
+                                    <span style="color: #856404;">Not Yet Completed</span>
+                                {% elif task.urgency == 'in_progress' %}
+                                    <span style="color: #1565c0;">In Progress</span>
                                 {% else %}
-                                    <span style="color: #28a745;">Current</span>
+                                    <span style="color: #28a745;">Completed</span>
                                 {% endif %}
                             </td>
                         </tr>

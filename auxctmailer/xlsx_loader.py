@@ -70,11 +70,20 @@ def format_competency_display_name(competency_type: str) -> str:
 class TaskRecord:
     """Represents a single task for a member."""
 
+    # Map Task Status field values to urgency levels
+    STATUS_TO_URGENCY = {
+        'expired': 'red',
+        'not yet completed': 'yellow',
+        'in progress': 'in_progress',
+        'completed': 'green',
+    }
+
     def __init__(
         self,
         competency_type: str,
         competency_status: str,
         task_type: str,
+        task_status: Optional[str],
         task_next_due: Optional[datetime],
         task_last_completed: Optional[datetime],
         cycle_requirement: Optional[float],
@@ -83,6 +92,7 @@ class TaskRecord:
         self.competency_type = competency_type
         self.competency_status = competency_status
         self.task_type = task_type
+        self.task_status = task_status
         self.task_next_due = task_next_due
         self.task_last_completed = task_last_completed
         self.cycle_requirement = cycle_requirement
@@ -105,39 +115,39 @@ class TaskRecord:
             return 'certified'
 
     def get_urgency(self, reference_date: Optional[datetime] = None) -> str:
-        """Determine task urgency based on due date.
+        """Determine task urgency based on Task Status field.
 
         Urgency levels:
-        - Red: Overdue or due within 30 days
-        - Yellow: Due within current calendar year (after 30-day window)
-        - Green: Not due until next calendar year or later
+        - Red: Expired
+        - Yellow: Not Yet Completed
+        - In Progress: In Progress (displayed with blue/distinct styling)
+        - Green: Completed
 
         Args:
-            reference_date: Date to calculate from (defaults to today)
+            reference_date: Date to calculate from (unused, kept for compatibility)
 
         Returns:
-            'red', 'yellow', or 'green'
+            'red', 'yellow', 'in_progress', or 'green'
         """
+        if self.task_status:
+            status_lower = self.task_status.lower().strip()
+            if status_lower in self.STATUS_TO_URGENCY:
+                return self.STATUS_TO_URGENCY[status_lower]
+
+        # Fallback for missing task_status: use date-based logic
         if reference_date is None:
             reference_date = datetime.now()
 
         if self.task_next_due is None:
-            # No due date - check if it's a requirement that needs completion
-            # Tasks without due dates that have never been completed need attention
-            if self.task_last_completed is None and self.cycle_requirement:
-                return 'yellow'
             return 'green'
 
         days_until_due = (self.task_next_due - reference_date).days
 
         if days_until_due < 0:
-            # Overdue
             return 'red'
         elif days_until_due <= URGENT_THRESHOLD_DAYS:
-            # Due within 30 days
             return 'red'
         else:
-            # Check if due within current calendar year
             end_of_year = datetime(reference_date.year, 12, 31)
             if self.task_next_due <= end_of_year:
                 return 'yellow'
@@ -169,6 +179,7 @@ class TaskRecord:
             'competency_status': self.competency_status,
             'status_bucket': self.get_status_bucket(),
             'task_type': self.task_type,
+            'task_status': self.task_status,
             'task_next_due': due_date_str,
             'task_last_completed': last_completed_str,
             'days_until_due': days_until_due,
@@ -226,7 +237,8 @@ class Competency:
     def get_overall_urgency(self, reference_date: Optional[datetime] = None) -> str:
         """Get the most urgent status across all tasks in this competency.
 
-        Returns 'red' if any task is red, 'yellow' if any task is yellow, else 'green'.
+        Returns 'red' if any task is red, 'yellow' if any is yellow,
+        'in_progress' if any is in_progress, else 'green'.
         """
         if reference_date is None:
             reference_date = datetime.now()
@@ -236,6 +248,8 @@ class Competency:
             return 'red'
         elif 'yellow' in urgencies:
             return 'yellow'
+        elif 'in_progress' in urgencies:
+            return 'in_progress'
         return 'green'
 
     def to_dict(self, reference_date: Optional[datetime] = None) -> Dict:
@@ -248,7 +262,7 @@ class Competency:
             status_date_str = self.status_date.strftime("%m/%d/%Y")
 
         # Group tasks by urgency
-        tasks_by_urgency = {'red': [], 'yellow': [], 'green': []}
+        tasks_by_urgency = {'red': [], 'yellow': [], 'in_progress': [], 'green': []}
         for task in self.tasks:
             task_dict = task.to_dict(reference_date)
             urgency = task_dict['urgency']
@@ -278,9 +292,11 @@ class Competency:
             'tasks': [task.to_dict(reference_date) for task in self.tasks],
             'tasks_red': tasks_by_urgency['red'],
             'tasks_yellow': tasks_by_urgency['yellow'],
+            'tasks_in_progress': tasks_by_urgency['in_progress'],
             'tasks_green': tasks_by_urgency['green'],
             'has_red': len(tasks_by_urgency['red']) > 0,
             'has_yellow': len(tasks_by_urgency['yellow']) > 0,
+            'has_in_progress': len(tasks_by_urgency['in_progress']) > 0,
             'has_green': len(tasks_by_urgency['green']) > 0,
         }
 
@@ -331,12 +347,12 @@ class MemberRecord:
         """Get tasks grouped by urgency level.
 
         Returns:
-            Dictionary with 'red', 'yellow', 'green' keys containing task lists
+            Dictionary with 'red', 'yellow', 'in_progress', 'green' keys containing task lists
         """
         if reference_date is None:
             reference_date = datetime.now()
 
-        result = {'red': [], 'yellow': [], 'green': []}
+        result = {'red': [], 'yellow': [], 'in_progress': [], 'green': []}
 
         for task in self.tasks:
             task_dict = task.to_dict(reference_date)
@@ -359,15 +375,15 @@ class MemberRecord:
 
         Returns:
             Dictionary with 'certified', 'trainee', 'lapsed' keys,
-            each containing {'red': [], 'yellow': [], 'green': []} task lists
+            each containing {'red': [], 'yellow': [], 'in_progress': [], 'green': []} task lists
         """
         if reference_date is None:
             reference_date = datetime.now()
 
         result = {
-            'certified': {'red': [], 'yellow': [], 'green': []},
-            'trainee': {'red': [], 'yellow': [], 'green': []},
-            'lapsed': {'red': [], 'yellow': [], 'green': []},
+            'certified': {'red': [], 'yellow': [], 'in_progress': [], 'green': []},
+            'trainee': {'red': [], 'yellow': [], 'in_progress': [], 'green': []},
+            'lapsed': {'red': [], 'yellow': [], 'in_progress': [], 'green': []},
         }
 
         for task in self.tasks:
@@ -398,7 +414,7 @@ class MemberRecord:
 
         # Helper to check if a bucket has any tasks
         def bucket_has_tasks(bucket: Dict[str, List]) -> bool:
-            return any(len(bucket[u]) > 0 for u in ['red', 'yellow', 'green'])
+            return any(len(bucket[u]) > 0 for u in ['red', 'yellow', 'in_progress', 'green'])
 
         def bucket_has_urgency(bucket: Dict[str, List], urgency: str) -> bool:
             return len(bucket[urgency]) > 0
@@ -425,9 +441,11 @@ class MemberRecord:
             # Flat urgency lists (for simple template - kept for backwards compatibility)
             'tasks_red': tasks_by_urgency['red'],
             'tasks_yellow': tasks_by_urgency['yellow'],
+            'tasks_in_progress': tasks_by_urgency['in_progress'],
             'tasks_green': tasks_by_urgency['green'],
             'has_red_tasks': len(tasks_by_urgency['red']) > 0,
             'has_yellow_tasks': len(tasks_by_urgency['yellow']) > 0,
+            'has_in_progress_tasks': len(tasks_by_urgency['in_progress']) > 0,
             'has_green_tasks': len(tasks_by_urgency['green']) > 0,
             # Bucket-organized tasks (for organized template)
             'certified': tasks_by_bucket['certified'],
@@ -439,12 +457,15 @@ class MemberRecord:
             # Per-bucket urgency flags
             'certified_has_red': bucket_has_urgency(tasks_by_bucket['certified'], 'red'),
             'certified_has_yellow': bucket_has_urgency(tasks_by_bucket['certified'], 'yellow'),
+            'certified_has_in_progress': bucket_has_urgency(tasks_by_bucket['certified'], 'in_progress'),
             'certified_has_green': bucket_has_urgency(tasks_by_bucket['certified'], 'green'),
             'trainee_has_red': bucket_has_urgency(tasks_by_bucket['trainee'], 'red'),
             'trainee_has_yellow': bucket_has_urgency(tasks_by_bucket['trainee'], 'yellow'),
+            'trainee_has_in_progress': bucket_has_urgency(tasks_by_bucket['trainee'], 'in_progress'),
             'trainee_has_green': bucket_has_urgency(tasks_by_bucket['trainee'], 'green'),
             'lapsed_has_red': bucket_has_urgency(tasks_by_bucket['lapsed'], 'red'),
             'lapsed_has_yellow': bucket_has_urgency(tasks_by_bucket['lapsed'], 'yellow'),
+            'lapsed_has_in_progress': bucket_has_urgency(tasks_by_bucket['lapsed'], 'in_progress'),
             'lapsed_has_green': bucket_has_urgency(tasks_by_bucket['lapsed'], 'green'),
             'total_tasks': len(self.tasks),
             'report_date': reference_date.strftime("%m/%d/%Y"),
@@ -618,6 +639,10 @@ class XlsxTaskLoader:
             if pd.isna(task_type) or not str(task_type).strip():
                 continue
 
+            # Get Task Status field (Expired, Not Yet Completed, In Progress, Completed)
+            task_status_val = row.get('Task Status')
+            task_status = str(task_status_val).strip() if pd.notna(task_status_val) else None
+
             # Parse dates and numeric values
             task_next_due = self._parse_date(row.get('Task Next Due'))
             task_last_completed = self._parse_date(row.get('Task Last Completed'))
@@ -633,6 +658,7 @@ class XlsxTaskLoader:
                 competency_type=current_competency_type or 'Unknown',
                 competency_status=current_competency_status or 'Unknown',
                 task_type=str(task_type),
+                task_status=task_status,
                 task_next_due=task_next_due,
                 task_last_completed=task_last_completed,
                 cycle_requirement=cycle_requirement,
@@ -1132,9 +1158,11 @@ def merge_competency_data(
                 'tasks': [],
                 'tasks_red': [],
                 'tasks_yellow': [],
+                'tasks_in_progress': [],
                 'tasks_green': [],
                 'has_red': False,
                 'has_yellow': False,
+                'has_in_progress': False,
                 'has_green': False,
             }
         merged.append(merged_comp)
