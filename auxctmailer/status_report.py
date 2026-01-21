@@ -295,7 +295,7 @@ def main():
                 member_num = recipient.get('member_num', 'unknown')
                 first_name = recipient.get('first_name', '')
                 last_name = recipient.get('last_name', '')
-                filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+                filename = f"{last_name}_{first_name}_{member_num}.html".replace(' ', '_')
                 file_path = save_path / filename
                 file_path.write_text(body_html)
         else:
@@ -348,7 +348,7 @@ def handle_dry_run(args, recipients: list, template: EmailTemplate, logger: logg
             member_num = recipient.get('member_num', 'unknown')
             first_name = recipient.get('first_name', '')
             last_name = recipient.get('last_name', '')
-            filename = f"{member_num}_{first_name}_{last_name}.html".replace(' ', '_')
+            filename = f"{last_name}_{first_name}_{member_num}.html".replace(' ', '_')
             file_path = save_path / filename
             file_path.write_text(body_html)
 
