@@ -197,11 +197,18 @@
                 <p style="font-size: 13px; color: #666; font-style: italic; margin: 0;">No tasks for this competency.</p>
                 {% endif %}
 
+                {# FSO Contact for assistance - only for yellow/red competencies #}
+                {% if comp.overall_urgency in ['red', 'yellow'] and comp.fso_contact and comp.fso_contact.name %}
+                <p style="font-size: 12px; color: #666; margin: 15px 0 0 0; padding-top: 10px; border-top: 1px solid rgba(0,0,0,0.1);">
+                    For assistance with this competency, contact <a href="mailto:{{ comp.fso_contact.email }}?subject=Assistance%20with%20{{ (comp.competency_display_name or comp.competency_type) | urlencode }}" style="color: #003f87;">{{ comp.fso_contact.name }}</a>, {{ comp.fso_contact.position }}{% if comp.fso_contact.phone %}, {{ comp.fso_contact.phone }}{% endif %}.
+                </p>
+                {% endif %}
+
             </div>
             {% endfor %}
         </div>
 
-        <p style="margin-top: 30px;">If you have any questions about your tasks or need assistance, please contact your FSO-IS{% if fso_is %} ({{ fso_is }}){% endif %} or FSO-MT{% if fso_mt %} ({{ fso_mt }}){% endif %}.</p>
+        <p style="margin-top: 30px;">If you have any questions about your tasks or need assistance, please contact your FSO-IS{% if fso_is.name %} (<a href="mailto:{{ fso_is.email }}?subject=Question%20about%20my%20training%20status" style="color: #003f87;">{{ fso_is.name }}</a>{% if fso_is.phone %}, {{ fso_is.phone }}{% endif %}){% endif %} or FSO-MT{% if fso_mt.name %} (<a href="mailto:{{ fso_mt.email }}?subject=Question%20about%20my%20training%20status" style="color: #003f87;">{{ fso_mt.name }}</a>{% if fso_mt.phone %}, {{ fso_mt.phone }}{% endif %}){% endif %}.</p>
 
         <p><strong>Semper Paratus!</strong></p>
     </div>

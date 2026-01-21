@@ -51,6 +51,15 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help='Path to CSV file with course URLs and enrollment codes (AUX-CT courses.csv)'
     )
     parser.add_argument(
+        '--officers-xlsx',
+        help='Path to xlsx file with officer assignments (Officers - Current export)'
+    )
+    parser.add_argument(
+        '--competency-mapping',
+        default='competency_fso_mapping.json',
+        help='Path to JSON file mapping competencies to FSO positions (default: competency_fso_mapping.json)'
+    )
+    parser.add_argument(
         '--template',
         default='task_status_report.html',
         help='Name of email template file (default: task_status_report.html)'
@@ -179,6 +188,134 @@ def prettify_unit_name(raw_name: str) -> str:
     return pretty
 
 
+def format_phone(phone_value) -> str:
+    """Format a phone number as (XXX) XXX-XXXX.
+
+    Phone numbers from xlsx may be floats in scientific notation.
+    """
+    import pandas as pd
+
+    if pd.isna(phone_value):
+        return ''
+
+    # Convert to integer string (handles scientific notation floats)
+    try:
+        phone_str = str(int(float(phone_value)))
+    except (ValueError, TypeError):
+        return ''
+
+    # Format as (XXX) XXX-XXXX if 10 digits
+    if len(phone_str) == 10:
+        return f"({phone_str[:3]}) {phone_str[3:6]}-{phone_str[6:]}"
+
+    return phone_str
+
+
+def load_officers(officers_xlsx: str, logger: logging.Logger) -> dict:
+    """Load officer assignments from xlsx for all FSO positions by unit.
+
+    Returns a dict keyed by unit number (7-digit string), with values containing
+    officer info keyed by position (e.g., 'FSO-IS', 'FSO-MT', 'FSO-OP').
+    """
+    import pandas as pd
+
+    officers = {}
+    if not officers_xlsx or not Path(officers_xlsx).exists():
+        return officers
+
+    try:
+        # Officers xlsx has metadata header rows; data header is at row 13 (0-indexed)
+        df = pd.read_excel(officers_xlsx, header=13)
+
+        # Filter for all FSO positions
+        fso_df = df[df['Position'].str.startswith('FSO-', na=False)]
+
+        for _, row in fso_df.iterrows():
+            unit_num = str(row.get('Unit Number', '')).strip()
+            if not unit_num or unit_num == 'nan':
+                continue
+
+            position = row.get('Position', '')
+            first_name = str(row.get('Member: First Name', '')).strip()
+            last_name = str(row.get('Member: Last Name', '')).strip()
+            email = str(row.get('Member: Email', '')).strip()
+            if email.lower() == 'nan':
+                email = ''
+
+            # Prefer mobile, fall back to home phone
+            phone = format_phone(row.get('Member: Mobile')) or format_phone(row.get('Member: Home Phone'))
+
+            # Format name as "First Last" in title case
+            name = f"{first_name.title()} {last_name.title()}"
+
+            if unit_num not in officers:
+                officers[unit_num] = {}
+
+            officer_info = {
+                'name': name,
+                'email': email,
+                'phone': phone,
+                'position': position,
+            }
+
+            # Store by position (e.g., 'FSO-IS', 'FSO-MT', 'FSO-OP')
+            officers[unit_num][position] = officer_info
+
+        logger.info(f"Loaded officer data for {len(officers)} units")
+    except Exception as e:
+        logger.warning(f"Could not load officers data: {e}")
+
+    return officers
+
+
+def load_competency_fso_mapping(mapping_file: str, logger: logging.Logger) -> dict:
+    """Load competency-to-FSO position mapping from JSON file.
+
+    Returns a dict mapping competency type names to FSO positions.
+    """
+    import json
+
+    if not mapping_file or not Path(mapping_file).exists():
+        return {}
+
+    try:
+        with open(mapping_file) as f:
+            mapping = json.load(f)
+        logger.info(f"Loaded {len(mapping)} competency-to-FSO mappings")
+        return mapping
+    except Exception as e:
+        logger.warning(f"Could not load competency FSO mapping: {e}")
+        return {}
+
+
+def get_fso_for_competency(
+    competency_type: str,
+    mapping: dict,
+    unit_officers: dict,
+    logger: logging.Logger,
+    logged_unmapped: set
+) -> dict:
+    """Look up the FSO contact for a given competency type.
+
+    Returns officer info dict with name, email, phone, position, or empty dict if not found.
+    Logs unmapped competencies once per run.
+    """
+    fso_position = mapping.get(competency_type)
+
+    if not fso_position:
+        # Log unmapped competency (only once per competency type)
+        if competency_type not in logged_unmapped:
+            logger.warning(f"No FSO mapping for competency: {competency_type}")
+            logged_unmapped.add(competency_type)
+        return {}
+
+    officer = unit_officers.get(fso_position, {})
+    if not officer:
+        return {}
+
+    return officer
+
+
 def main():
     """Main application entry point."""
     parser = build_argument_parser()
@@ -207,6 +344,15 @@ def main():
 
     # Load unit details if provided
     unit_details = load_unit_details(args.units_csv, logger) if args.units_csv else {}
+
+    # Load officer data if provided (for FSO-IS and FSO-MT names)
+    officers = load_officers(args.officers_xlsx, logger) if args.officers_xlsx else {}
+
+    # Load competency-to-FSO mapping (for competency-specific contact info)
+    competency_fso_mapping = load_competency_fso_mapping(args.competency_mapping, logger)
+
+    # Track unmapped competencies to log only once
+    logged_unmapped_competencies = set()
 
     # Load all competency data if provided (for complete qualifications list)
     competency_data = load_competency_summary(args.competencies_xlsx) if args.competencies_xlsx else {}
@@ -257,8 +403,12 @@ def main():
             unit = unit_details[member.unit_number]
             ctx['unit_name'] = unit['unit_name']
             ctx['unit_name_pretty'] = unit['unit_name_pretty']
-            ctx['fso_is'] = unit['fso_is']
-            ctx['fso_mt'] = unit['fso_mt']
+
+        # Add officer contact info if available (from officers xlsx)
+        if member.unit_number in officers:
+            unit_officers = officers[member.unit_number]
+            ctx['fso_is'] = unit_officers.get('FSO-IS', {})
+            ctx['fso_mt'] = unit_officers.get('FSO-MT', {})
 
         # Merge competency data from Unit Summary xlsx (complete list with dates)
         if competency_data and member.member_id in competency_data:
@@ -277,6 +427,19 @@ def main():
                             task['course_url'] = course_info.get('url')
                             task['course_title'] = course_info.get('title')
                             task['enrollment_code'] = course_info.get('enrollment_code')
+
+        # Add FSO contact for each competency (for yellow/red sections)
+        unit_officers = officers.get(member.unit_number, {})
+        for comp in ctx.get('competencies', []):
+            competency_type = comp.get('competency_type', '')
+            fso_contact = get_fso_for_competency(
+                competency_type,
+                competency_fso_mapping,
+                unit_officers,
+                logger,
+                logged_unmapped_competencies
+            )
+            comp['fso_contact'] = fso_contact
 
         # Add enhanced member info if available
         if member_info_data and member.member_id in member_info_data:
