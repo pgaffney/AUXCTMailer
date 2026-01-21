@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from auxctmailer.xlsx_loader import (
     XlsxTaskLoader,
     load_competency_summary,
+    load_member_info,
     merge_competency_data,
 )
 from auxctmailer.mailer import EmailSender, SendGridEmailSender, EmailTemplate
@@ -29,6 +30,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--competencies-xlsx',
         help='Path to xlsx file with competency status dates (Unit Summary - Competencies export)'
+    )
+    parser.add_argument(
+        '--members-xlsx',
+        help='Path to xlsx file with member info (Unit Members export with email, phone, uniform status)'
     )
     parser.add_argument(
         '--email-csv',
@@ -200,6 +205,9 @@ def main():
     # Load all competency data if provided (for complete qualifications list)
     competency_data = load_competency_summary(args.competencies_xlsx) if args.competencies_xlsx else {}
 
+    # Load member info if provided (for enhanced member info box)
+    member_info_data = load_member_info(args.members_xlsx) if args.members_xlsx else {}
+
     # Get members with email addresses
     members_with_email = loader.get_members_with_email()
     logger.info(f"Found {len(members_with_email)} members with email addresses")
@@ -249,6 +257,18 @@ def main():
                 task_competencies=ctx.get('competencies', []),
                 summary_competencies=competency_data[member.member_id],
             )
+
+        # Add enhanced member info if available
+        if member_info_data and member.member_id in member_info_data:
+            info = member_info_data[member.member_id]
+            ctx['member_status'] = info.get('member_status')
+            ctx['member_status_date'] = info.get('member_status_date')
+            ctx['email_on_file'] = info.get('email')
+            ctx['mobile_phone'] = info.get('mobile')
+            ctx['home_phone'] = info.get('home_phone')
+            ctx['uniform_last_inspected'] = info.get('uniform_last_inspected')
+            ctx['uniform_exempt'] = info.get('uniform_exempt')
+            ctx['uniform_current_year'] = info.get('uniform_current_year')
 
         recipients.append(ctx)
 

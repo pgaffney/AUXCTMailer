@@ -622,6 +622,140 @@ class XlsxTaskLoader:
         return list(self.members.values())
 
 
+def load_member_info(members_xlsx: str) -> Dict[str, Dict]:
+    """Load member information from Unit Members xlsx export.
+
+    Args:
+        members_xlsx: Path to the Unit Members xlsx file
+
+    Returns:
+        Dict mapping member_id -> dict with:
+            - first_name, last_name, member_status, member_status_date
+            - email, mobile, home_phone
+            - uniform_last_inspected, uniform_exempt
+    """
+    members = {}
+    xlsx_path = Path(members_xlsx)
+
+    if not xlsx_path.exists():
+        logger.warning(f"Members xlsx not found: {members_xlsx}")
+        return members
+
+    try:
+        # Read xlsx and find header row
+        df_raw = pd.read_excel(xlsx_path, header=None)
+
+        # Find header row containing 'Member ID'
+        header_row = None
+        for idx in range(min(20, len(df_raw))):
+            row_values = df_raw.iloc[idx].astype(str).tolist()
+            for val in row_values:
+                if 'Member ID' in val:
+                    header_row = idx
+                    break
+            if header_row is not None:
+                break
+
+        if header_row is None:
+            logger.warning("Could not find header row in members xlsx")
+            return members
+
+        # Re-read with correct header
+        df = pd.read_excel(xlsx_path, header=header_row)
+
+        # Process each row
+        for idx, row in df.iterrows():
+            member_id = row.get('Member ID')
+            if pd.isna(member_id):
+                continue
+
+            member_id = str(int(member_id)) if isinstance(member_id, float) else str(member_id)
+
+            # Format phone numbers
+            mobile = row.get('Mobile')
+            if pd.notna(mobile):
+                mobile = str(int(mobile)) if isinstance(mobile, float) else str(mobile)
+                # Format as (XXX) XXX-XXXX if 10 digits
+                if len(mobile) == 10 and mobile.isdigit():
+                    mobile = f"({mobile[:3]}) {mobile[3:6]}-{mobile[6:]}"
+            else:
+                mobile = None
+
+            home_phone = row.get('Home Phone')
+            if pd.notna(home_phone):
+                home_phone = str(int(home_phone)) if isinstance(home_phone, float) else str(home_phone)
+                if len(home_phone) == 10 and home_phone.isdigit():
+                    home_phone = f"({home_phone[:3]}) {home_phone[3:6]}-{home_phone[6:]}"
+            else:
+                home_phone = None
+
+            # Format dates
+            status_date = row.get('Member Status Date')
+            if pd.notna(status_date):
+                if isinstance(status_date, str):
+                    status_date_str = status_date
+                else:
+                    try:
+                        status_date_str = pd.to_datetime(status_date).strftime('%m/%d/%Y')
+                    except Exception:
+                        status_date_str = str(status_date)
+            else:
+                status_date_str = None
+
+            uniform_date = row.get('Uniform Last Inspected')
+            if pd.notna(uniform_date):
+                if isinstance(uniform_date, str):
+                    uniform_date_str = uniform_date
+                    # Try to parse for comparison
+                    try:
+                        uniform_date_parsed = pd.to_datetime(uniform_date)
+                    except Exception:
+                        uniform_date_parsed = None
+                else:
+                    try:
+                        uniform_date_parsed = pd.to_datetime(uniform_date)
+                        uniform_date_str = uniform_date_parsed.strftime('%m/%d/%Y')
+                    except Exception:
+                        uniform_date_str = str(uniform_date)
+                        uniform_date_parsed = None
+            else:
+                uniform_date_str = None
+                uniform_date_parsed = None
+
+            # Determine uniform inspection status
+            uniform_exempt = row.get('Uniform Exempt')
+            is_uniform_exempt = pd.notna(uniform_exempt) and uniform_exempt in [1, 1.0, '1', True, 'TRUE', 'True']
+
+            # Check if uniform inspection is current year
+            uniform_current_year = False
+            if uniform_date_parsed is not None:
+                current_year = datetime.now().year
+                uniform_current_year = uniform_date_parsed.year == current_year
+
+            email = row.get('Email')
+            email_str = str(email).strip() if pd.notna(email) else None
+
+            members[member_id] = {
+                'first_name': str(row.get('First Name', '')).strip() if pd.notna(row.get('First Name')) else '',
+                'last_name': str(row.get('Last Name', '')).strip() if pd.notna(row.get('Last Name')) else '',
+                'member_status': str(row.get('Member Status', '')).strip() if pd.notna(row.get('Member Status')) else '',
+                'member_status_date': status_date_str,
+                'email': email_str,
+                'mobile': mobile,
+                'home_phone': home_phone,
+                'uniform_last_inspected': uniform_date_str,
+                'uniform_exempt': is_uniform_exempt,
+                'uniform_current_year': uniform_current_year,
+            }
+
+        logger.info(f"Loaded info for {len(members)} members from members xlsx")
+
+    except Exception as e:
+        logger.warning(f"Could not load member info: {e}")
+
+    return members
+
+
 def competency_sort_key(comp: Dict) -> Tuple:
     """Get sort key for ordering competencies.
 

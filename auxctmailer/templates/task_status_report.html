@@ -19,10 +19,37 @@
 
         <div style="background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px;">
             <p style="margin: 0 0 10px 0;"><strong>Member Information:</strong></p>
-            <ul style="margin: 5px 0; padding-left: 20px;">
-                <li><strong>Member #:</strong> {{ member_num }}</li>
+            <ul style="margin: 5px 0; padding-left: 20px; list-style: none;">
                 <li><strong>Name:</strong> {{ first_name }} {{ last_name }}</li>
+                <li><strong>Member #:</strong> {{ member_num }}</li>
+                {% if member_status %}
+                <li><strong>Member Status:</strong> {{ member_status }}{% if member_status_date %} ({{ member_status_date }}){% endif %}</li>
+                {% endif %}
+                {% if email_on_file %}
+                <li><strong>Email on File:</strong> {{ email_on_file }}</li>
+                {% endif %}
+                {% if mobile_phone or home_phone %}
+                <li><strong>Phone on File:</strong> {% if mobile_phone %}{{ mobile_phone }}{% if home_phone %} / {% endif %}{% endif %}{% if home_phone %}{{ home_phone }}{% endif %}</li>
+                {% endif %}
             </ul>
+
+            {# Uniform Inspection Status #}
+            {% if uniform_exempt %}
+            <div style="background-color: #e9ecef; padding: 10px; margin-top: 10px; border-radius: 3px; font-size: 13px;">
+                <strong>Uniform Inspection:</strong> Your record is marked as having a uniform exemption. If this is accurate, no action required. If you believe you should have a current uniform inspection on file, please contact an elected officer.
+            </div>
+            {% elif uniform_last_inspected %}
+                {% if uniform_current_year %}
+            <div style="background-color: #d4edda; padding: 10px; margin-top: 10px; border-radius: 3px; font-size: 13px; border-left: 3px solid #28a745;">
+                <strong>Uniform Inspection:</strong> {{ uniform_last_inspected }} <span style="color: #28a745;">(Current)</span>
+            </div>
+                {% else %}
+            <div style="background-color: #fff3cd; padding: 10px; margin-top: 10px; border-radius: 3px; font-size: 13px; border-left: 3px solid #ffc107;">
+                <strong>Uniform Inspection:</strong> {{ uniform_last_inspected }} <span style="color: #856404;">(Not current year)</span><br>
+                <span style="font-size: 12px;">You do not have a uniform inspection for the current calendar year. Please get in touch with an elected officer to complete one.</span>
+            </div>
+                {% endif %}
+            {% endif %}
         </div>
 
         {# ============================================================ #}
