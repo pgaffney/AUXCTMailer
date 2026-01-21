@@ -10,6 +10,7 @@ setup(
         "jinja2",
         "sendgrid",
         "requests",
+        "openpyxl",
     ],
     extras_require={
         "dev": [
@@ -20,6 +21,7 @@ setup(
     entry_points={
         "console_scripts": [
             "auxctmailer=auxctmailer.main:main",
+            "auxct-status-report=auxctmailer.status_report:main",
         ],
     },
     author="Paul Gaffney",

@@ -60,3 +60,4 @@ test_output/
 sent_emails_*/
 test_emails/
 *.html
+*.xlsx

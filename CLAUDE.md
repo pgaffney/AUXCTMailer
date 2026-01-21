@@ -2,19 +2,21 @@
 
 ## Project Overview
 
-AUXCTMailer is an email automation system for the U.S. Coast Guard Auxiliary. It sends personalized training reminder emails to members based on their AUXCT (AUX Core Training) status.
+AUXCTMailer is an email automation system for the U.S. Coast Guard Auxiliary. It sends personalized training and task status emails to members.
 
-**Primary Use Case:** Send automated training reminders to flotilla members with personalized course deadlines, uniform inspection reminders, and contact information. Supports multiple units with dynamic unit name and number display.
+**Primary Use Cases:**
+1. **Task Status Reports** (NEW): Comprehensive status reports from xlsx "To Do Lists" exports showing all member tasks across all competency types with red/yellow/green priority coding.
+2. **AUXCT Training Reminders** (Legacy): Training reminders from CSV exports focused on core training courses.
 
 ## Key Features
 
+- ✅ **Task Status Reports** - Comprehensive task tracking across all competency types (AUXCT, Boat Crew, Instructor, Vessel Examiner, etc.)
+- ✅ **Priority-coded sections** - Red (urgent/overdue), Yellow (due within 365 days), Green (good standing)
+- ✅ **xlsx support** - Load data from "To Do Lists for all members" xlsx exports
 - ✅ **Multi-unit support** - Dynamic unit name and number lookup from UnitDetails.csv
 - ✅ **Pretty formatting** - Unit names (Title Case + "Flotilla" suffix) and numbers (DDD-VV-UU format)
-- ✅ Personalized emails with member-specific training requirements
-- ✅ Course deadline tracking with yellow (due soon) and red (overdue) warnings
-- ✅ Uniform inspection status tracking with exemption support
-- ✅ Special handling for specific courses (Suicide Prevention, Civil Rights Awareness, SAPRR)
-- ✅ Extraction date support for accurate due date calculations
+- ✅ Personalized emails with member-specific task requirements
+- ✅ Currency tracking for hours/exams/visits (shows progress like "0/5 required")
 - ✅ SendGrid and SMTP email provider support
 - ✅ HTML archiving of sent emails (important for SendGrid free tier)
 - ✅ Dry-run mode for testing
@@ -25,12 +27,16 @@ AUXCTMailer is an email automation system for the U.S. Coast Guard Auxiliary. It
 AUXCTMailer/
 ├── auxctmailer/
 │   ├── __init__.py
-│   ├── main.py              # CLI entry point
-│   ├── database.py          # CSV data loading and member filtering
+│   ├── main.py              # CLI entry point (legacy CSV workflow)
+│   ├── status_report.py     # CLI entry point (NEW xlsx workflow)
+│   ├── xlsx_loader.py       # xlsx data loading and task categorization
+│   ├── database.py          # CSV data loading and member filtering (legacy)
 │   ├── mailer.py            # Email sending and template rendering
+│   ├── context.py           # Template context processing
 │   └── templates/
-│       ├── training_reminder.html  # Main email template
-│       └── example.html            # Sample template
+│       ├── task_status_report.html  # NEW: Priority-coded status report template
+│       ├── training_reminder.html   # Legacy: AUXCT training reminder template
+│       └── example.html             # Sample template
 ├── .env                     # SendGrid credentials (NOT in Git)
 ├── .env.example            # Environment variable template
 ├── .gitignore
@@ -40,10 +46,11 @@ AUXCTMailer/
 └── CLAUDE.md               # This file
 
 # Data Files (NOT in Git):
-├── 2025-10-01 AUX-CT DB.csv    # Training data export with Unit/Member/Competency/Status field
-├── MemberEmail.csv              # Member emails + Uniform Exempt flag
-├── AUX-CT courses.csv           # Course information with enrollment keys
-└── UnitDetails.csv              # Unit names and details (optional for multi-unit support)
+├── *To Do Lists for all members*.xlsx  # NEW: xlsx export from member management
+├── MemberEmail.csv                      # Member emails
+├── UnitDetails.csv                      # Unit names and details (optional)
+├── 2025-10-01 AUX-CT DB.csv            # Legacy: CSV training data export
+└── AUX-CT courses.csv                   # Legacy: Course information
 ```
 
 ## Important Configuration
@@ -67,26 +74,26 @@ FROM_EMAIL=paul@gaffney.io
 
 ### Data Files
 
-1. **Training CSV:** `2025-10-01 AUX-CT DB.csv`
-   - Contains member training records
-   - Key columns: Member #, First Name, Last Name, Status, Uniform Inspection, Unit/Member/Competency/Status
-   - Course columns: PAWR_810015, POSH_810000, SETA_810030, SP_100643, SAPRR_502379, CRA_502319
-   - Values in course columns = days until due from extraction date
-   - Unit/Member/Competency/Status format: `Unit: 0131102 | LASTNAME. FIRSTNAME 1234567 | AUXCT - CORE TRAINING (Status)`
+1. **To Do Lists xlsx** (NEW - Primary): `*To Do Lists for all members*.xlsx`
+   - Export from member management system showing all member tasks
+   - Contains: Unit/Member Name/ID, Competency Type, Competency Status, Task Type, Task Next Due, Task Last Completed, Cycle Requirement, Currency Units
+   - Multiple rows per member (one per task)
+   - Supports 17+ competency types: AUXCT, Boat Crew, Instructor, Vessel Examiner, etc.
+   - Supports 33+ task types: training courses, currency hours, exams, qualification tasks
 
 2. **Email CSV:** `MemberEmail.csv`
-   - Contains: Member ID, Last Name, First Name, Email, Uniform Exempt
-   - Uniform Exempt: 0 = not exempt, 1 = exempt from inspections
+   - Contains: Member ID, Last Name, First Name, Email
+   - Required for matching emails to member IDs from xlsx
 
-3. **Courses CSV:** `AUX-CT courses.csv`
-   - Contains: Code, Title, URL, EnrollmentCode
-   - Maps course codes to friendly names and Moodle enrollment keys
-
-4. **Units CSV:** `UnitDetails.csv` (optional)
+3. **Units CSV:** `UnitDetails.csv` (optional)
    - Contains: Unit Number, Unit Name, Type, Last Modified Date, FSO-IS, FSO-MT
    - Used for dynamic unit name lookup
    - Unit Number format: 7 digits (DDDVVUU - District/Division/Unit)
    - Unit names are auto-prettified: "WOODS HOLE FLOTILLA" → "Woods Hole Flotilla"
+
+4. **Legacy CSV Files** (for training_reminder.html workflow):
+   - `AUX-CT DB.csv` - Training data with course columns
+   - `AUX-CT courses.csv` - Course metadata with enrollment keys
 
 ### Extraction Date Logic
 
@@ -122,7 +129,65 @@ cd ~/Projects/AUXCTMailer
 source venv/bin/activate
 ```
 
-### Test Email (Send to yourself)
+---
+
+## Task Status Report Commands (NEW - xlsx workflow)
+
+### Test Status Report (Single member, dry-run)
+
+```bash
+python -m auxctmailer.status_report \
+  --xlsx "013-11-02 To Do Lists for all members-2026-01-20-14-04-19.xlsx" \
+  --email-csv MemberEmail.csv \
+  --filter-member 5008388 \
+  --dry-run \
+  --save-html test_status_reports
+```
+
+### Dry Run (Preview all members)
+
+```bash
+python -m auxctmailer.status_report \
+  --xlsx "013-11-02 To Do Lists for all members-2026-01-20-14-04-19.xlsx" \
+  --email-csv MemberEmail.csv \
+  --dry-run \
+  --save-html test_status_reports
+```
+
+### Production Run (Send to all members)
+
+```bash
+python -m auxctmailer.status_report \
+  --xlsx "013-11-02 To Do Lists for all members-2026-01-20-14-04-19.xlsx" \
+  --email-csv MemberEmail.csv \
+  --units-csv UnitDetails.csv \
+  --save-html sent_status_reports_YYYY-MM-DD
+```
+
+### Filter Options (Status Report)
+
+Only members with urgent (red) tasks:
+```bash
+--filter-has-red
+```
+
+Only members with attention-needed (yellow/red) tasks:
+```bash
+--filter-has-yellow
+```
+
+Single member by ID:
+```bash
+--filter-member 5008388
+```
+
+**Important:** Always use `--save-html` to archive sent emails!
+
+---
+
+## Legacy Training Reminder Commands (CSV workflow)
+
+### Test Email (Single member)
 
 ```bash
 python -m auxctmailer.main \
@@ -144,30 +209,13 @@ python -m auxctmailer.main \
   --training-csv "2025-10-01 AUX-CT DB.csv" \
   --email-csv MemberEmail.csv \
   --courses-csv "AUX-CT courses.csv" \
-  --units-csv UnitDetails.csv \
   --extraction-date "10/01/2025" \
   --template training_reminder.html \
   --subject "AUXCT Training Reminder - {{ first_name }} {{ last_name }}" \
   --dry-run
 ```
 
-### Production Run (Send to all members)
-
-```bash
-python -m auxctmailer.main \
-  --training-csv "2025-10-01 AUX-CT DB.csv" \
-  --email-csv MemberEmail.csv \
-  --courses-csv "AUX-CT courses.csv" \
-  --units-csv UnitDetails.csv \
-  --extraction-date "10/01/2025" \
-  --template training_reminder.html \
-  --subject "AUXCT Training Reminder - {{ first_name }} {{ last_name }}" \
-  --save-html sent_emails_YYYY-MM-DD
-```
-
-**Important:** Always use `--save-html` to archive sent emails!
-
-### Filter Options
+### Filter Options (Legacy)
 
 Filter by specific member:
 ```bash
@@ -179,16 +227,43 @@ Filter by status:
 --filter Status=Certified
 ```
 
-Multiple filters:
-```bash
---filter Status=Certified "Uniform Exempt=0"
-```
-
 ## Email Template Personalization
 
-The template uses Jinja2 syntax with these key variables:
+### Task Status Report Template (task_status_report.html)
 
-### Member Information
+Template variables for the new xlsx-based status reports:
+
+**Member Information:**
+- `{{ first_name }}` / `{{ first_name_titlecase }}` - Name (PAUL → Paul)
+- `{{ last_name }}`
+- `{{ member_num }}` / `{{ member_id }}`
+- `{{ unit_number }}` / `{{ unit_number_pretty }}` (e.g., "013-11-02")
+- `{{ unit_name_pretty }}` (e.g., "Woods Hole Flotilla")
+- `{{ report_date }}` - Date report was generated
+
+**Task Lists (by priority):**
+- `{{ tasks_red }}` - List of urgent/overdue tasks
+- `{{ tasks_yellow }}` - List of attention-needed tasks
+- `{{ tasks_green }}` - List of tasks in good standing
+- `{{ has_red_tasks }}` / `{{ has_yellow_tasks }}` / `{{ has_green_tasks }}` - Booleans
+
+**Each task in lists contains:**
+- `task_type` - Task name (e.g., "VESSEL EXAMINATIONS")
+- `competency_type` - Competency area (e.g., "VESSEL EXAMINER")
+- `competency_status` - Status (e.g., "Certified", "REYR")
+- `task_next_due` - Due date string (e.g., "12/31/2026")
+- `days_until_due` - Days until due (None if overdue)
+- `days_overdue` - Days overdue (None if not overdue)
+- `cycle_requirement` - Required count (e.g., 5.0 for exams)
+- `currency_units` - Current progress (e.g., 0.0)
+
+---
+
+### Legacy Training Reminder Template (training_reminder.html)
+
+Template variables for the CSV-based training reminders:
+
+**Member Information:**
 - `{{ first_name }}` - Auto-converted to title case (PAUL → Paul)
 - `{{ last_name }}`
 - `{{ member_num }}`
@@ -196,26 +271,30 @@ The template uses Jinja2 syntax with these key variables:
 - `{{ uniform_inspection }}` - Date of last inspection
 - `{{ uniform_exempt }}` - Boolean, true if exempt
 - `{{ extraction_date }}` - Date training data was extracted
-- `{{ extraction_plus_365 }}` - Date 365 days after extraction
-- `{{ unit_number }}` - Raw unit number (e.g., "0131102")
 - `{{ unit_number_pretty }}` - Formatted unit number (e.g., "013-11-02")
-- `{{ unit_name }}` - Raw unit name (e.g., "WOODS HOLE FLOTILLA")
 - `{{ unit_name_pretty }}` - Formatted unit name (e.g., "Woods Hole Flotilla")
 
-### Course Warnings
+**Course Warnings:**
 - `{% if has_overdue_courses %}` - Red warning section
 - `{% if has_due_soon_courses %}` - Yellow warning section
 - `{{ courses_overdue }}` - List with: title, url, enrollment_code, days_overdue
 - `{{ courses_due_soon }}` - List with: title, url, enrollment_code, days_until_due, due_date
 
-### Contact Information (hardcoded in template)
-- IS Officer: Paul Gaffney, FSO-IS
-- Email: paul.gaffney@hey.com
-- Phone/Text: 508-904-1393
-
 ## Data Processing Logic
 
-### Uniform Inspection
+### Task Urgency (Status Report)
+
+Tasks are categorized by urgency based on their due date:
+
+- **Red (Urgent)**: Task is overdue OR due within 30 days
+- **Yellow (Attention)**: Task is due within 365 days (but more than 30 days out)
+- **Green (Good)**: Task is due more than 365 days out OR has no due date
+
+Special cases:
+- Tasks with no due date but requiring completion (cycle_requirement > 0) are marked yellow
+- Tasks with no due date and no cycle requirement are marked green
+
+### Uniform Inspection (Legacy)
 - If `Uniform Exempt = 1`: No inspection warning
 - If last inspection before 1/1/current_year: Show warning
 - If last inspection is current year: No warning
