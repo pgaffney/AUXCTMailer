@@ -71,7 +71,7 @@
                 <tbody>
                 {% for comp in competencies %}
                     <tr style="{% if loop.index is odd %}background-color: #f8f9fa;{% endif %}">
-                        <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{ comp.competency_type }}</td>
+                        <td style="padding: 10px; border-bottom: 1px solid #dee2e6;">{{ comp.competency_display_name or comp.competency_type }}</td>
                         <td style="padding: 10px; border-bottom: 1px solid #dee2e6; text-align: center;">
                             {% if comp.status_bucket == 'lapsed' %}
                             <span style="color: #856404; font-weight: bold;">{{ comp.competency_status }}</span>
@@ -118,27 +118,35 @@
             {% if comp.overall_urgency == 'red' %}
             <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-left: 4px solid #dc3545; border-radius: 5px; padding: 20px; margin: 20px 0;">
                 <h4 style="color: #721c24; margin: 0 0 10px 0;">
-                    {{ comp.competency_type }}
+                    {{ comp.competency_display_name or comp.competency_type }}
                     <span style="font-weight: normal; font-size: 12px; margin-left: 10px;">({{ comp.competency_status }})</span>
                 </h4>
             {% elif comp.overall_urgency == 'yellow' %}
             <div style="background-color: #fff8e1; border: 1px solid #ffecb3; border-left: 4px solid #ffc107; border-radius: 5px; padding: 20px; margin: 20px 0;">
                 <h4 style="color: #856404; margin: 0 0 10px 0;">
-                    {{ comp.competency_type }}
+                    {{ comp.competency_display_name or comp.competency_type }}
                     <span style="font-weight: normal; font-size: 12px; margin-left: 10px;">({{ comp.competency_status }})</span>
                 </h4>
             {% else %}
             <div style="background-color: #e8f5e9; border: 1px solid #c8e6c9; border-left: 4px solid #28a745; border-radius: 5px; padding: 20px; margin: 20px 0;">
                 <h4 style="color: #2e7d32; margin: 0 0 10px 0;">
-                    {{ comp.competency_type }}
+                    {{ comp.competency_display_name or comp.competency_type }}
                     <span style="font-weight: normal; font-size: 12px; margin-left: 10px;">({{ comp.competency_status }})</span>
                 </h4>
             {% endif %}
 
-                {# REYR/REWK Note #}
-                {% if comp.is_lapsed %}
+                {# REYR/REWK Note - skip for AUX-CT since it's mandatory for all members #}
+                {% if comp.is_lapsed and not comp.is_auxct %}
                 <p style="font-size: 13px; font-style: italic; color: #666; margin: 0 0 15px 0; padding: 10px; background-color: rgba(255,255,255,0.5); border-radius: 3px;">
                     <strong>Note:</strong> If you do not wish to retain currency in this competency, please inform your FSO-IS so your records can be updated accordingly.
+                </p>
+                {% endif %}
+
+                {# Trainee Expiration Note #}
+                {% if comp.is_trainee and comp.trainee_expires %}
+                <p style="font-size: 13px; color: #0056b3; margin: 0 0 15px 0; padding: 10px; background-color: rgba(255,255,255,0.5); border-radius: 3px; border-left: 3px solid #0056b3;">
+                    <strong>Trainee Status Expires:</strong> {{ comp.trainee_expires }}<br>
+                    <span style="font-size: 12px;">Trainee status is valid for 2 years from your initial qualification date. Please complete your qualification requirements before this date.</span>
                 </p>
                 {% endif %}
 
@@ -157,6 +165,10 @@
                         <tr>
                             <td style="padding: 8px; border-bottom: 1px solid rgba(0,0,0,0.05);">
                                 {{ task.task_type }}
+                                {% if task.course_url %}
+                                <br><a href="{{ task.course_url }}" style="font-size: 12px; color: #003f87;">Take this course</a>
+                                {% if task.enrollment_code %}<span style="font-size: 11px; color: #666;"> (Enrollment Key: {{ task.enrollment_code }})</span>{% endif %}
+                                {% endif %}
                                 {% if task.cycle_requirement and task.currency_units is not none %}
                                 <br><span style="font-size: 11px; color: #666;">Progress: {{ task.currency_units|int }}/{{ task.cycle_requirement|int }} required</span>
                                 {% endif %}

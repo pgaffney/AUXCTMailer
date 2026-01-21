@@ -13,6 +13,57 @@ logger = get_logger(__name__)
 
 # Task urgency thresholds (in days)
 URGENT_THRESHOLD_DAYS = 30  # Red: due within 30 days or overdue
+
+
+def calculate_trainee_expiration(status_date: Optional[datetime]) -> Optional[str]:
+    """Calculate trainee status expiration date (2 years from status date).
+
+    Args:
+        status_date: The date the trainee status was granted
+
+    Returns:
+        Formatted expiration date string, or None if no status_date
+    """
+    if not status_date:
+        return None
+
+    try:
+        # Add 2 years to the status date
+        expiration = status_date.replace(year=status_date.year + 2)
+        return expiration.strftime("%m/%d/%Y")
+    except ValueError:
+        # Handle Feb 29 edge case
+        expiration = status_date.replace(year=status_date.year + 2, day=28)
+        return expiration.strftime("%m/%d/%Y")
+
+
+def format_competency_display_name(competency_type: str) -> str:
+    """Format competency type for display.
+
+    Special cases:
+    - "AUXCT - CORE TRAINING" -> "AUX Core Training (AUX-CT)"
+
+    All other competencies are returned in title case with Roman numerals preserved.
+    """
+    if not competency_type:
+        return competency_type
+
+    upper = competency_type.upper()
+    if 'AUXCT' in upper or ('AUX' in upper and 'CORE TRAINING' in upper):
+        return 'AUX Core Training (AUX-CT)'
+
+    # Title case for other competencies, then fix Roman numerals
+    result = competency_type.title()
+
+    # Fix common Roman numerals that get mangled by title()
+    roman_fixes = {
+        ' Ii': ' II', ' Iii': ' III', ' Iv': ' IV', ' Vi': ' VI',
+        ' Vii': ' VII', ' Viii': ' VIII', ' Ix': ' IX', ' Xi': ' XI',
+    }
+    for wrong, right in roman_fixes.items():
+        result = result.replace(wrong, right)
+
+    return result
 # Note: Yellow threshold is now dynamic based on end of current calendar year
 
 
@@ -209,13 +260,20 @@ class Competency:
                 key=lambda t: (t['task_next_due'] is None, t['task_next_due'] or '9999-99-99')
             )
 
+        status_bucket = self.get_status_bucket()
+        is_trainee = status_bucket == 'trainee'
+        trainee_expires = calculate_trainee_expiration(self.status_date) if is_trainee else None
+
         return {
             'competency_type': self.competency_type,
+            'competency_display_name': format_competency_display_name(self.competency_type),
             'competency_status': self.competency_status,
-            'status_bucket': self.get_status_bucket(),
+            'status_bucket': status_bucket,
             'status_date': status_date_str,
             'is_auxct': self.is_auxct(),
-            'is_lapsed': self.get_status_bucket() == 'lapsed',
+            'is_trainee': is_trainee,
+            'is_lapsed': status_bucket == 'lapsed',
+            'trainee_expires': trainee_expires,
             'overall_urgency': self.get_overall_urgency(reference_date),
             'tasks': [task.to_dict(reference_date) for task in self.tasks],
             'tasks_red': tasks_by_urgency['red'],
@@ -756,6 +814,93 @@ def load_member_info(members_xlsx: str) -> Dict[str, Dict]:
     return members
 
 
+def load_courses(courses_csv: str) -> Dict[str, Dict]:
+    """Load course information from CSV file.
+
+    Args:
+        courses_csv: Path to the courses CSV file
+
+    Returns:
+        Dict mapping course code -> dict with:
+            - title, url, enrollment_code
+    """
+    courses = {}
+    csv_path = Path(courses_csv)
+
+    if not csv_path.exists():
+        logger.warning(f"Courses CSV not found: {courses_csv}")
+        return courses
+
+    try:
+        df = pd.read_csv(csv_path)
+
+        for _, row in df.iterrows():
+            code = str(row.get('Code', '')).strip()
+            if not code:
+                continue
+
+            courses[code] = {
+                'title': str(row.get('Title', '')).strip(),
+                'url': str(row.get('URL', '')).strip(),
+                'enrollment_code': str(row.get('EnrollmentCode', '')).strip(),
+            }
+
+        logger.info(f"Loaded {len(courses)} courses from CSV")
+
+    except Exception as e:
+        logger.warning(f"Could not load courses: {e}")
+
+    return courses
+
+
+def extract_course_code(task_name: str) -> Optional[str]:
+    """Extract course code from task name.
+
+    Task names often include the code in parentheses at the end, e.g.:
+    "SEXUAL ASSAULT PREVENTION RESPONSE AND RECOVERY (502379)"
+
+    Returns the code if found, else None.
+    """
+    if not task_name:
+        return None
+
+    # Look for code in parentheses at end of task name
+    match = re.search(r'\((\d+)\)\s*$', task_name)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def match_task_to_course(task_name: str, courses: Dict[str, Dict]) -> Optional[Dict]:
+    """Match a task name to its course information.
+
+    Args:
+        task_name: The task type name from xlsx
+        courses: Dict of courses keyed by code
+
+    Returns:
+        Course dict with url and enrollment_code, or None if no match
+    """
+    if not task_name or not courses:
+        return None
+
+    # Extract numeric code from task name
+    code_num = extract_course_code(task_name)
+
+    # Try to find a course where the code ends with this number
+    for course_code, course_info in courses.items():
+        # Course codes are like "SAPRR_502379", task code is "502379"
+        if code_num and course_code.endswith(code_num):
+            return course_info
+
+        # Also try partial match on code
+        if code_num and code_num in course_code:
+            return course_info
+
+    return None
+
+
 def competency_sort_key(comp: Dict) -> Tuple:
     """Get sort key for ordering competencies.
 
@@ -836,6 +981,13 @@ def load_competency_summary(competencies_xlsx: str) -> Dict[str, List[Dict]]:
                 cert_date_col = col
                 break
 
+        # Find Created Date column (for trainee expiration calculation)
+        created_date_col = None
+        for col in df.columns:
+            if 'Created Date' in col:
+                created_date_col = col
+                break
+
         if not unit_member_col or not cert_date_col:
             logger.warning("Missing required columns in competencies xlsx")
             return members
@@ -865,8 +1017,9 @@ def load_competency_summary(competencies_xlsx: str) -> Dict[str, List[Dict]]:
 
             status = row.get('Status', '')
             cert_date = row.get(cert_date_col)
+            created_date = row.get(created_date_col) if created_date_col else None
 
-            # Format date
+            # Format certification date
             date_str = None
             if pd.notna(cert_date):
                 if isinstance(cert_date, str):
@@ -877,10 +1030,22 @@ def load_competency_summary(competencies_xlsx: str) -> Dict[str, List[Dict]]:
                     except Exception:
                         date_str = str(cert_date)
 
+            # Format created date (for trainee expiration)
+            created_date_str = None
+            if pd.notna(created_date):
+                if isinstance(created_date, str):
+                    created_date_str = created_date
+                else:
+                    try:
+                        created_date_str = pd.to_datetime(created_date).strftime('%m/%d/%Y')
+                    except Exception:
+                        created_date_str = str(created_date)
+
             members[current_member_id].append({
                 'competency_type': comp_type,
                 'competency_status': str(status) if pd.notna(status) else 'Unknown',
                 'status_date': date_str,
+                'created_date': created_date_str,
             })
 
         total_comps = sum(len(v) for v in members.values())
@@ -921,27 +1086,48 @@ def merge_competency_data(
     # Index task competencies by type for quick lookup
     task_comps = {c['competency_type']: c for c in task_competencies}
 
+    # Index summary competencies by type
+    summary_types = {c['competency_type'] for c in summary_competencies}
+
     merged = []
+
+    # First, process all summary competencies
     for comp_info in summary_competencies:
         comp_type = comp_info['competency_type']
 
+        # Calculate trainee expiration from created_date if available
+        trainee_expires = None
+        created_date = comp_info.get('created_date')
+        status_bucket = get_status_bucket(comp_info['competency_status'])
+        is_trainee = status_bucket == 'trainee'
+
+        if is_trainee and created_date:
+            try:
+                created_date_parsed = pd.to_datetime(created_date)
+                trainee_expires = calculate_trainee_expiration(created_date_parsed)
+            except Exception:
+                pass
+
         if comp_type in task_comps:
-            # Competency has tasks - use task data but add status_date
+            # Competency has tasks - use task data but add status_date and trainee info
             merged_comp = task_comps[comp_type].copy()
             merged_comp['status_date'] = comp_info['status_date']
+            merged_comp['trainee_expires'] = trainee_expires
         else:
             # Competency has no tasks - create entry from summary
             status = comp_info['competency_status']
-            status_bucket = get_status_bucket(status)
             is_auxct = 'AUXCT' in comp_type.upper() or 'CORE TRAINING' in comp_type.upper()
 
             merged_comp = {
                 'competency_type': comp_type,
+                'competency_display_name': format_competency_display_name(comp_type),
                 'competency_status': status,
                 'status_bucket': status_bucket,
                 'status_date': comp_info['status_date'],
                 'is_auxct': is_auxct,
+                'is_trainee': is_trainee,
                 'is_lapsed': status_bucket == 'lapsed',
+                'trainee_expires': trainee_expires,
                 'overall_urgency': 'green',  # No tasks = green
                 'tasks': [],
                 'tasks_red': [],
@@ -952,6 +1138,11 @@ def merge_competency_data(
                 'has_green': False,
             }
         merged.append(merged_comp)
+
+    # Second, add any task competencies not in summary (e.g., Trainee status excluded from summary)
+    for comp_type, task_comp in task_comps.items():
+        if comp_type not in summary_types:
+            merged.append(task_comp)
 
     # Sort using the standard sort key
     merged.sort(key=competency_sort_key)

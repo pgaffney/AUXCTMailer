@@ -9,6 +9,8 @@ from auxctmailer.xlsx_loader import (
     XlsxTaskLoader,
     load_competency_summary,
     load_member_info,
+    load_courses,
+    match_task_to_course,
     merge_competency_data,
 )
 from auxctmailer.mailer import EmailSender, SendGridEmailSender, EmailTemplate
@@ -43,6 +45,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '--units-csv',
         help='Path to CSV file with unit details (optional, for unit name lookup)'
+    )
+    parser.add_argument(
+        '--courses-csv',
+        help='Path to CSV file with course URLs and enrollment codes (AUX-CT courses.csv)'
     )
     parser.add_argument(
         '--template',
@@ -208,6 +214,9 @@ def main():
     # Load member info if provided (for enhanced member info box)
     member_info_data = load_member_info(args.members_xlsx) if args.members_xlsx else {}
 
+    # Load course info if provided (for AUXCT course links)
+    courses_data = load_courses(args.courses_csv) if args.courses_csv else {}
+
     # Get members with email addresses
     members_with_email = loader.get_members_with_email()
     logger.info(f"Found {len(members_with_email)} members with email addresses")
@@ -257,6 +266,17 @@ def main():
                 task_competencies=ctx.get('competencies', []),
                 summary_competencies=competency_data[member.member_id],
             )
+
+        # Add course links to AUXCT tasks
+        if courses_data:
+            for comp in ctx.get('competencies', []):
+                if comp.get('is_auxct'):
+                    for task in comp.get('tasks', []):
+                        course_info = match_task_to_course(task.get('task_type', ''), courses_data)
+                        if course_info:
+                            task['course_url'] = course_info.get('url')
+                            task['course_title'] = course_info.get('title')
+                            task['enrollment_code'] = course_info.get('enrollment_code')
 
         # Add enhanced member info if available
         if member_info_data and member.member_id in member_info_data:
