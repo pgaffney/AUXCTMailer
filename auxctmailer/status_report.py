@@ -5,7 +5,11 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
-from auxctmailer.xlsx_loader import XlsxTaskLoader
+from auxctmailer.xlsx_loader import (
+    XlsxTaskLoader,
+    load_competency_summary,
+    merge_competency_data,
+)
 from auxctmailer.mailer import EmailSender, SendGridEmailSender, EmailTemplate
 from auxctmailer.logger import setup_logger, get_logger
 from auxctmailer.config import load_email_config, EmailConfig
@@ -164,113 +168,6 @@ def prettify_unit_name(raw_name: str) -> str:
     return pretty
 
 
-def load_competency_data(competencies_xlsx: str, logger: logging.Logger) -> dict:
-    """Load competency data from Unit Summary xlsx.
-
-    Returns:
-        Dict mapping member_id -> list of competency dicts with:
-            - competency_type, status, status_date
-    """
-    import pandas as pd
-    import re
-
-    members = {}
-    if not competencies_xlsx or not Path(competencies_xlsx).exists():
-        return members
-
-    try:
-        # Read xlsx and find header row
-        df_raw = pd.read_excel(competencies_xlsx, header=None)
-
-        # Find header row containing 'Original Certification Date'
-        header_row = None
-        for idx in range(min(30, len(df_raw))):
-            row_values = df_raw.iloc[idx].astype(str).tolist()
-            for val in row_values:
-                if 'Original Certification' in val or 'Certification Date' in val:
-                    header_row = idx
-                    break
-            if header_row is not None:
-                break
-
-        if header_row is None:
-            logger.warning("Could not find header row in competencies xlsx")
-            return members
-
-        # Re-read with correct header
-        df = pd.read_excel(competencies_xlsx, header=header_row)
-        df.columns = [re.sub(r'\s*[↑↓]\s*', '', str(col)).strip() for col in df.columns]
-
-        # Find the relevant columns
-        unit_member_col = None
-        for col in df.columns:
-            if 'Unit/Member' in col:
-                unit_member_col = col
-                break
-
-        cert_date_col = None
-        for col in df.columns:
-            if 'Original Certification' in col or 'Certification Date' in col:
-                cert_date_col = col
-                break
-
-        if not unit_member_col or not cert_date_col:
-            logger.warning("Missing required columns in competencies xlsx")
-            return members
-
-        # Parse the data
-        current_member_id = None
-        for idx, row in df.iterrows():
-            # Check for new member
-            unit_member = str(row.get(unit_member_col, ''))
-            if 'Unit:' in unit_member:
-                # Extract member ID
-                match = re.search(r'(\d{7})$', unit_member)
-                if match:
-                    current_member_id = match.group(1)
-                    if current_member_id not in members:
-                        members[current_member_id] = []
-
-            if current_member_id is None:
-                continue
-
-            # Skip subtotal rows and invalid entries
-            comp_type = row.get('Competency Type')
-            if pd.isna(comp_type):
-                continue
-            comp_type = str(comp_type).strip()
-            # Skip if empty, subtotal, count, or just a number
-            if comp_type.lower() in ['subtotal', 'count', ''] or comp_type.isdigit():
-                continue
-            status = row.get('Status', '')
-            cert_date = row.get(cert_date_col)
-
-            # Format date
-            date_str = None
-            if pd.notna(cert_date):
-                if isinstance(cert_date, str):
-                    date_str = cert_date
-                else:
-                    try:
-                        date_str = pd.to_datetime(cert_date).strftime('%m/%d/%Y')
-                    except:
-                        date_str = str(cert_date)
-
-            members[current_member_id].append({
-                'competency_type': comp_type,
-                'competency_status': str(status) if pd.notna(status) else 'Unknown',
-                'status_date': date_str,
-            })
-
-        total_comps = sum(len(v) for v in members.values())
-        logger.info(f"Loaded {total_comps} competencies for {len(members)} members")
-
-    except Exception as e:
-        logger.warning(f"Could not load competency data: {e}")
-
-    return members
-
-
 def main():
     """Main application entry point."""
     parser = build_argument_parser()
@@ -301,7 +198,7 @@ def main():
     unit_details = load_unit_details(args.units_csv, logger) if args.units_csv else {}
 
     # Load all competency data if provided (for complete qualifications list)
-    competency_data = load_competency_data(args.competencies_xlsx, logger) if args.competencies_xlsx else {}
+    competency_data = load_competency_summary(args.competencies_xlsx) if args.competencies_xlsx else {}
 
     # Get members with email addresses
     members_with_email = loader.get_members_with_email()
@@ -348,57 +245,10 @@ def main():
 
         # Merge competency data from Unit Summary xlsx (complete list with dates)
         if competency_data and member.member_id in competency_data:
-            all_comps = competency_data[member.member_id]
-            task_comps = {c['competency_type']: c for c in ctx.get('competencies', [])}
-
-            # Build merged competencies list with proper sorting
-            merged = []
-            for comp_info in all_comps:
-                comp_type = comp_info['competency_type']
-                if comp_type in task_comps:
-                    # Competency has tasks - use task data but add status_date
-                    merged_comp = task_comps[comp_type].copy()
-                    merged_comp['status_date'] = comp_info['status_date']
-                else:
-                    # Competency has no tasks - create entry from Unit Summary
-                    status = comp_info['competency_status']
-                    status_lower = status.lower() if status else ''
-                    if 'trainee' in status_lower or 'not certified' in status_lower:
-                        status_bucket = 'trainee'
-                    elif 'reyr' in status_lower or 'rewk' in status_lower:
-                        status_bucket = 'lapsed'
-                    else:
-                        status_bucket = 'certified'
-
-                    is_auxct = 'AUXCT' in comp_type.upper() or 'CORE TRAINING' in comp_type.upper()
-
-                    merged_comp = {
-                        'competency_type': comp_type,
-                        'competency_status': status,
-                        'status_bucket': status_bucket,
-                        'status_date': comp_info['status_date'],
-                        'is_auxct': is_auxct,
-                        'is_lapsed': status_bucket == 'lapsed',
-                        'overall_urgency': 'green',  # No tasks = green
-                        'tasks': [],
-                        'tasks_red': [],
-                        'tasks_yellow': [],
-                        'tasks_green': [],
-                        'has_red': False,
-                        'has_yellow': False,
-                        'has_green': False,
-                    }
-                merged.append(merged_comp)
-
-            # Sort: AUXCT first, then by status bucket, then alphabetically
-            def sort_key(c):
-                is_auxct = 0 if c.get('is_auxct') else 1
-                bucket_order = {'trainee': 1, 'certified': 2, 'lapsed': 3}
-                status_order = bucket_order.get(c.get('status_bucket', 'certified'), 99)
-                return (is_auxct, status_order, c['competency_type'].upper())
-
-            merged.sort(key=sort_key)
-            ctx['competencies'] = merged
+            ctx['competencies'] = merge_competency_data(
+                task_competencies=ctx.get('competencies', []),
+                summary_competencies=competency_data[member.member_id],
+            )
 
         recipients.append(ctx)
 

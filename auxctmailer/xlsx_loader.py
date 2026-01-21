@@ -620,3 +620,205 @@ class XlsxTaskLoader:
     def get_all_members(self) -> List[MemberRecord]:
         """Get all members."""
         return list(self.members.values())
+
+
+def competency_sort_key(comp: Dict) -> Tuple:
+    """Get sort key for ordering competencies.
+
+    Sort order:
+    1. AUXCT - Core Training first
+    2. Trainee competencies alphabetically
+    3. Certified competencies alphabetically
+    4. REYR/REWK competencies alphabetically
+
+    Args:
+        comp: Competency dict with 'competency_type', 'is_auxct', 'status_bucket'
+
+    Returns:
+        Tuple for sorting
+    """
+    comp_type = comp.get('competency_type', '')
+    is_auxct = comp.get('is_auxct')
+    if is_auxct is None:
+        is_auxct = 'AUXCT' in comp_type.upper() or 'CORE TRAINING' in comp_type.upper()
+
+    bucket_order = {'trainee': 1, 'certified': 2, 'lapsed': 3}
+    status_bucket = comp.get('status_bucket', 'certified')
+    status_order = bucket_order.get(status_bucket, 99)
+
+    return (0 if is_auxct else 1, status_order, comp_type.upper())
+
+
+def load_competency_summary(competencies_xlsx: str) -> Dict[str, List[Dict]]:
+    """Load competency data from Unit Summary xlsx.
+
+    Args:
+        competencies_xlsx: Path to the Unit Summary - Competencies xlsx file
+
+    Returns:
+        Dict mapping member_id -> list of competency dicts with:
+            - competency_type, competency_status, status_date
+    """
+    members = {}
+    xlsx_path = Path(competencies_xlsx)
+
+    if not xlsx_path.exists():
+        logger.warning(f"Competencies xlsx not found: {competencies_xlsx}")
+        return members
+
+    try:
+        # Read xlsx and find header row
+        df_raw = pd.read_excel(xlsx_path, header=None)
+
+        # Find header row containing 'Original Certification Date'
+        header_row = None
+        for idx in range(min(30, len(df_raw))):
+            row_values = df_raw.iloc[idx].astype(str).tolist()
+            for val in row_values:
+                if 'Original Certification' in val or 'Certification Date' in val:
+                    header_row = idx
+                    break
+            if header_row is not None:
+                break
+
+        if header_row is None:
+            logger.warning("Could not find header row in competencies xlsx")
+            return members
+
+        # Re-read with correct header
+        df = pd.read_excel(xlsx_path, header=header_row)
+        df.columns = [re.sub(r'\s*[↑↓]\s*', '', str(col)).strip() for col in df.columns]
+
+        # Find the relevant columns
+        unit_member_col = None
+        for col in df.columns:
+            if 'Unit/Member' in col:
+                unit_member_col = col
+                break
+
+        cert_date_col = None
+        for col in df.columns:
+            if 'Original Certification' in col or 'Certification Date' in col:
+                cert_date_col = col
+                break
+
+        if not unit_member_col or not cert_date_col:
+            logger.warning("Missing required columns in competencies xlsx")
+            return members
+
+        # Parse the data
+        current_member_id = None
+        for idx, row in df.iterrows():
+            # Check for new member
+            unit_member = str(row.get(unit_member_col, ''))
+            if 'Unit:' in unit_member:
+                match = re.search(r'(\d{7})$', unit_member)
+                if match:
+                    current_member_id = match.group(1)
+                    if current_member_id not in members:
+                        members[current_member_id] = []
+
+            if current_member_id is None:
+                continue
+
+            # Skip subtotal rows and invalid entries
+            comp_type = row.get('Competency Type')
+            if pd.isna(comp_type):
+                continue
+            comp_type = str(comp_type).strip()
+            if comp_type.lower() in ['subtotal', 'count', ''] or comp_type.isdigit():
+                continue
+
+            status = row.get('Status', '')
+            cert_date = row.get(cert_date_col)
+
+            # Format date
+            date_str = None
+            if pd.notna(cert_date):
+                if isinstance(cert_date, str):
+                    date_str = cert_date
+                else:
+                    try:
+                        date_str = pd.to_datetime(cert_date).strftime('%m/%d/%Y')
+                    except Exception:
+                        date_str = str(cert_date)
+
+            members[current_member_id].append({
+                'competency_type': comp_type,
+                'competency_status': str(status) if pd.notna(status) else 'Unknown',
+                'status_date': date_str,
+            })
+
+        total_comps = sum(len(v) for v in members.values())
+        logger.info(f"Loaded {total_comps} competencies for {len(members)} members from summary")
+
+    except Exception as e:
+        logger.warning(f"Could not load competency data: {e}")
+
+    return members
+
+
+def get_status_bucket(status: str) -> str:
+    """Determine status bucket from competency status string."""
+    status_lower = status.lower() if status else ''
+    if 'trainee' in status_lower or 'not certified' in status_lower:
+        return 'trainee'
+    elif 'reyr' in status_lower or 'rewk' in status_lower:
+        return 'lapsed'
+    return 'certified'
+
+
+def merge_competency_data(
+    task_competencies: List[Dict],
+    summary_competencies: List[Dict],
+) -> List[Dict]:
+    """Merge task competencies with summary competencies.
+
+    Summary competencies provide the complete list with status dates.
+    Task competencies provide the task details for competencies with tasks.
+
+    Args:
+        task_competencies: List of competency dicts from to_template_context()
+        summary_competencies: List of competency dicts from load_competency_summary()
+
+    Returns:
+        Merged and sorted list of competency dicts
+    """
+    # Index task competencies by type for quick lookup
+    task_comps = {c['competency_type']: c for c in task_competencies}
+
+    merged = []
+    for comp_info in summary_competencies:
+        comp_type = comp_info['competency_type']
+
+        if comp_type in task_comps:
+            # Competency has tasks - use task data but add status_date
+            merged_comp = task_comps[comp_type].copy()
+            merged_comp['status_date'] = comp_info['status_date']
+        else:
+            # Competency has no tasks - create entry from summary
+            status = comp_info['competency_status']
+            status_bucket = get_status_bucket(status)
+            is_auxct = 'AUXCT' in comp_type.upper() or 'CORE TRAINING' in comp_type.upper()
+
+            merged_comp = {
+                'competency_type': comp_type,
+                'competency_status': status,
+                'status_bucket': status_bucket,
+                'status_date': comp_info['status_date'],
+                'is_auxct': is_auxct,
+                'is_lapsed': status_bucket == 'lapsed',
+                'overall_urgency': 'green',  # No tasks = green
+                'tasks': [],
+                'tasks_red': [],
+                'tasks_yellow': [],
+                'tasks_green': [],
+                'has_red': False,
+                'has_yellow': False,
+                'has_green': False,
+            }
+        merged.append(merged_comp)
+
+    # Sort using the standard sort key
+    merged.sort(key=competency_sort_key)
+    return merged
