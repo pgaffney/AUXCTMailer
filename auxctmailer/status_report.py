@@ -12,6 +12,9 @@ from auxctmailer.xlsx_loader import (
     load_courses,
     match_task_to_course,
     merge_competency_data,
+    format_competency_display_name,
+    get_status_bucket,
+    competency_sort_key,
 )
 from auxctmailer.mailer import EmailSender, SendGridEmailSender, EmailTemplate
 from auxctmailer.logger import setup_logger, get_logger
@@ -83,6 +86,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
         '--filter-has-yellow',
         action='store_true',
         help='Only send to members with attention-needed (yellow) tasks'
+    )
+    parser.add_argument(
+        '--exclude-no-tasks',
+        action='store_true',
+        help='Exclude members with no task maintenance requirements (by default they receive "all good" emails)'
     )
     parser.add_argument(
         '--dry-run',
@@ -398,7 +406,23 @@ def main():
         ]
         logger.info(f"Filtered to members with yellow/red tasks: {len(filtered_members)}")
 
-    if not filtered_members:
+    # Identify members with no tasks (in member_info_data but not in task data)
+    # By default, include these members unless --exclude-no-tasks is specified
+    no_tasks_members = []
+    if not args.exclude_no_tasks and member_info_data:
+        task_member_ids = set(members.keys())
+        for member_id, info in member_info_data.items():
+            if member_id not in task_member_ids:
+                # Include BQ and AP status members (not IQ)
+                member_status = info.get('member_status', '')
+                if member_status in ('BQ', 'AP'):
+                    # Apply filter_member if specified
+                    if args.filter_member and member_id != args.filter_member:
+                        continue
+                    no_tasks_members.append((member_id, info))
+        logger.info(f"Found {len(no_tasks_members)} members with no task maintenance requirements")
+
+    if not filtered_members and not no_tasks_members:
         logger.warning("No members to email after filtering")
         return 0
 
@@ -471,8 +495,79 @@ def main():
 
         recipients.append(ctx)
 
+    # Build no-tasks recipients list
+    no_tasks_recipients = []
+    if no_tasks_members:
+        from datetime import datetime
+        for member_id, info in no_tasks_members:
+            email = info.get('email')
+            if not email:
+                continue
+
+            # Get unit number from competency data if available
+            unit_number = None
+            member_comps = competency_data.get(member_id, [])
+
+            # Build competencies list for template
+            comps_for_template = []
+            for comp in member_comps:
+                comps_for_template.append({
+                    'competency_type': comp.get('competency_type', ''),
+                    'competency_display_name': format_competency_display_name(comp.get('competency_type', '')),
+                    'competency_status': comp.get('competency_status', ''),
+                    'status_bucket': get_status_bucket(comp.get('competency_status', '')),
+                    'status_date': comp.get('status_date'),
+                })
+
+            # Sort competencies
+            comps_for_template.sort(key=competency_sort_key)
+
+            ctx = {
+                'member_id': member_id,
+                'member_num': member_id,
+                'first_name': info.get('first_name', ''),
+                'last_name': info.get('last_name', ''),
+                'first_name_titlecase': info.get('first_name', '').title(),
+                'email': email,
+                'member_status': info.get('member_status'),
+                'member_status_date': info.get('member_status_date'),
+                'email_on_file': email,
+                'mobile_phone': info.get('mobile'),
+                'home_phone': info.get('home_phone'),
+                'uniform_last_inspected': info.get('uniform_last_inspected'),
+                'uniform_exempt': info.get('uniform_exempt'),
+                'uniform_current_year': info.get('uniform_current_year'),
+                'competencies': comps_for_template,
+                'report_date': datetime.now().strftime("%m/%d/%Y"),
+                'fso_is': {},
+                'fso_mt': {},
+                'is_no_tasks': True,  # Flag to identify no-tasks recipients
+            }
+
+            # Add unit details - try to find from competency data or use default
+            # For now, use the unit from the xlsx filename or default
+            if unit_details:
+                # Try to find matching unit
+                for unit_num, unit_info in unit_details.items():
+                    if unit_num.startswith('0131102'):
+                        ctx['unit_number'] = unit_num
+                        ctx['unit_number_pretty'] = f"{unit_num[0:3]}-{unit_num[3:5]}-{unit_num[5:7]}"
+                        ctx['unit_name'] = unit_info['unit_name']
+                        ctx['unit_name_pretty'] = unit_info['unit_name_pretty']
+                        break
+
+            # Add officer contact info
+            if officers and ctx.get('unit_number') in officers:
+                unit_officers = officers[ctx['unit_number']]
+                ctx['fso_is'] = unit_officers.get('FSO-IS', {})
+                ctx['fso_mt'] = unit_officers.get('FSO-MT', {})
+
+            no_tasks_recipients.append(ctx)
+
+        logger.info(f"Prepared {len(no_tasks_recipients)} no-tasks recipients")
+
     if args.dry_run:
-        return handle_dry_run(args, recipients, template, logger)
+        return handle_dry_run(args, recipients, no_tasks_recipients, template, logger)
 
     # Send emails
     logger.info(f"\nSending emails via {email_config.provider.upper()}...")
@@ -486,8 +581,9 @@ def main():
         save_path.mkdir(parents=True, exist_ok=True)
 
     results = {'success': [], 'failed': []}
-    total = len(recipients)
+    total = len(recipients) + len(no_tasks_recipients)
 
+    # Send regular task status emails
     for idx, recipient in enumerate(recipients, 1):
         email = recipient.get('email')
         if not email:
@@ -521,6 +617,42 @@ def main():
             results['failed'].append(email)
             logger.warning(f"[{idx}/{total}] Failed to send to {email}")
 
+    # Send no-tasks emails
+    no_tasks_template = 'no_tasks_report.html'
+    no_tasks_subject = 'Member Status Report - {{ first_name_titlecase }} {{ last_name }}'
+    for idx, recipient in enumerate(no_tasks_recipients, len(recipients) + 1):
+        email = recipient.get('email')
+        if not email:
+            continue
+
+        # Render subject and body
+        subject = template.render_string(no_tasks_subject, **recipient)
+        body_html = template.render(no_tasks_template, **recipient)
+
+        # Send email
+        success = sender.send_email(
+            to_email=email,
+            subject=subject,
+            body_html=body_html,
+            from_email=email_config.from_email
+        )
+
+        if success:
+            results['success'].append(email)
+            logger.info(f"[{idx}/{total}] Sent (no-tasks) to {email}")
+
+            # Save HTML copy if directory specified
+            if save_path:
+                member_num = recipient.get('member_num', 'unknown')
+                first_name = recipient.get('first_name', '')
+                last_name = recipient.get('last_name', '')
+                filename = f"{last_name}_{first_name}_{member_num}.html".replace(' ', '_')
+                file_path = save_path / filename
+                file_path.write_text(body_html)
+        else:
+            results['failed'].append(email)
+            logger.warning(f"[{idx}/{total}] Failed to send to {email}")
+
     # Print summary
     logger.info(f"\n=== SUMMARY ===")
     logger.info(f"Successfully sent: {len(results['success'])}")
@@ -534,22 +666,26 @@ def main():
     return 0 if not results['failed'] else 1
 
 
-def handle_dry_run(args, recipients: list, template: EmailTemplate, logger: logging.Logger) -> int:
+def handle_dry_run(args, recipients: list, no_tasks_recipients: list, template: EmailTemplate, logger: logging.Logger) -> int:
     """Handle dry-run mode: preview or generate HTML files without sending."""
+    total_count = len(recipients) + len(no_tasks_recipients)
     logger.info("\n=== DRY RUN MODE ===")
-    logger.info(f"Would send to {len(recipients)} recipients")
+    logger.info(f"Would send to {total_count} recipients ({len(recipients)} with tasks, {len(no_tasks_recipients)} no-tasks)")
     logger.info(f"Template: {args.template}")
     logger.info(f"Subject: {args.subject}")
 
     # Count task types
-    total_red = sum(len(r['tasks_red']) for r in recipients)
-    total_yellow = sum(len(r['tasks_yellow']) for r in recipients)
-    total_green = sum(len(r['tasks_green']) for r in recipients)
+    total_red = sum(len(r.get('tasks_red', [])) for r in recipients)
+    total_yellow = sum(len(r.get('tasks_yellow', [])) for r in recipients)
+    total_green = sum(len(r.get('tasks_green', [])) for r in recipients)
 
-    logger.info(f"\nTask summary across all recipients:")
+    logger.info(f"\nTask summary across task recipients:")
     logger.info(f"  Red (urgent): {total_red} tasks")
     logger.info(f"  Yellow (attention): {total_yellow} tasks")
     logger.info(f"  Green (good): {total_green} tasks")
+
+    if no_tasks_recipients:
+        logger.info(f"\nNo-tasks recipients: {len(no_tasks_recipients)} members with no maintenance requirements")
 
     # If --save-html is specified with --dry-run, generate HTML files without sending
     if args.save_html:
@@ -559,6 +695,7 @@ def handle_dry_run(args, recipients: list, template: EmailTemplate, logger: logg
         logger.info(f"\n=== GENERATING HTML FILES ===")
         logger.info(f"Saving to: {save_path}")
 
+        # Generate regular task status HTML files
         for idx, recipient in enumerate(recipients, 1):
             # Render the email
             body_html = template.render(args.template, **recipient)
@@ -572,22 +709,46 @@ def handle_dry_run(args, recipients: list, template: EmailTemplate, logger: logg
             file_path.write_text(body_html)
 
             email = recipient.get('email', 'N/A')
-            logger.info(f"[{idx}/{len(recipients)}] Saved HTML for {email} -> {filename}")
+            logger.info(f"[{idx}/{total_count}] Saved HTML for {email} -> {filename}")
 
-        logger.info(f"\nGenerated {len(recipients)} HTML files in {save_path}/")
+        # Generate no-tasks HTML files
+        no_tasks_template = 'no_tasks_report.html'
+        for idx, recipient in enumerate(no_tasks_recipients, len(recipients) + 1):
+            # Render the email
+            body_html = template.render(no_tasks_template, **recipient)
+
+            # Save HTML file
+            member_num = recipient.get('member_num', 'unknown')
+            first_name = recipient.get('first_name', '')
+            last_name = recipient.get('last_name', '')
+            filename = f"{last_name}_{first_name}_{member_num}.html".replace(' ', '_')
+            file_path = save_path / filename
+            file_path.write_text(body_html)
+
+            email = recipient.get('email', 'N/A')
+            logger.info(f"[{idx}/{total_count}] Saved HTML (no-tasks) for {email} -> {filename}")
+
+        logger.info(f"\nGenerated {total_count} HTML files in {save_path}/")
     else:
         # Show first recipient as example
         if recipients:
-            logger.info("\nExample for first recipient:")
+            logger.info("\nExample for first task recipient:")
             example = recipients[0]
             logger.info(f"  To: {example.get('email', 'N/A')}")
             logger.info(f"  Name: {example.get('first_name')} {example.get('last_name')}")
-            logger.info(f"  Red tasks: {len(example['tasks_red'])}")
-            logger.info(f"  Yellow tasks: {len(example['tasks_yellow'])}")
-            logger.info(f"  Green tasks: {len(example['tasks_green'])}")
+            logger.info(f"  Red tasks: {len(example.get('tasks_red', []))}")
+            logger.info(f"  Yellow tasks: {len(example.get('tasks_yellow', []))}")
+            logger.info(f"  Green tasks: {len(example.get('tasks_green', []))}")
 
             subject = template.render_string(args.subject, **example)
             logger.info(f"  Subject: {subject}")
+
+        if no_tasks_recipients:
+            logger.info("\nExample for first no-tasks recipient:")
+            example = no_tasks_recipients[0]
+            logger.info(f"  To: {example.get('email', 'N/A')}")
+            logger.info(f"  Name: {example.get('first_name')} {example.get('last_name')}")
+            logger.info(f"  Competencies: {len(example.get('competencies', []))}")
 
     return 0
 
