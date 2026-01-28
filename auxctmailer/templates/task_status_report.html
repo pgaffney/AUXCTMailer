@@ -118,6 +118,8 @@
             {% endif %}
 
             {% for comp in competencies %}
+            {# Only show competencies that have tasks in the To Do List #}
+            {% if comp.tasks %}
             {# Determine section color based on overall urgency #}
             {% if comp.overall_urgency == 'red' %}
             <div style="background-color: #f8d7da; border: 1px solid #f5c6cb; border-left: 4px solid #dc3545; border-radius: 5px; padding: 20px; margin: 20px 0;">
@@ -160,8 +162,7 @@
                 </p>
                 {% endif %}
 
-                {# Task Table or No Tasks Message #}
-                {% if comp.tasks %}
+                {# Task Table #}
                 <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
                     <thead>
                         <tr>
@@ -201,9 +202,6 @@
                     {% endfor %}
                     </tbody>
                 </table>
-                {% else %}
-                <p style="font-size: 13px; color: #666; font-style: italic; margin: 0;">No tasks for this competency.</p>
-                {% endif %}
 
                 {# FSO Contact for assistance - only for yellow/red competencies #}
                 {% if comp.overall_urgency in ['red', 'yellow'] and comp.fso_contact and comp.fso_contact.name %}
@@ -213,6 +211,7 @@
                 {% endif %}
 
             </div>
+            {% endif %}{# end if comp.tasks #}
             {% endfor %}
         </div>
 
