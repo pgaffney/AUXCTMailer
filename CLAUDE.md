@@ -11,13 +11,15 @@ AUXCTMailer is an email automation system for the U.S. Coast Guard Auxiliary. It
 ## Key Features
 
 - ✅ **Task Status Reports** - Comprehensive task tracking across all competency types (AUXCT, Boat Crew, Instructor, Vessel Examiner, etc.)
-- ✅ **Priority-coded sections** - Red (urgent/overdue), Yellow (due within 365 days), Green (good standing)
-- ✅ **xlsx support** - Load data from "To Do Lists for all members" xlsx exports
+- ✅ **"All Good" Reports** - Members without task maintenance requirements receive a status confirmation email
+- ✅ **Priority-coded sections** - Red (Expired), Yellow (Not Yet Completed), Blue (In Progress), Green (Completed)
+- ✅ **xlsx support** - Load data from multiple xlsx exports (To Do List, Unit Members, Competencies, Officers)
+- ✅ **Smart email sourcing** - Uses emails from Unit Members xlsx as primary source (more current than CSV)
 - ✅ **Multi-unit support** - Dynamic unit name and number lookup from UnitDetails.csv
 - ✅ **Pretty formatting** - Unit names (Title Case + "Flotilla" suffix) and numbers (DDD-VV-UU format)
 - ✅ Personalized emails with member-specific task requirements
 - ✅ Currency tracking for hours/exams/visits (shows progress like "0/5 required")
-- ✅ SendGrid and SMTP email provider support
+- ✅ SendGrid and SMTP email provider support (SMTP fallback for Outlook/Comcast addresses)
 - ✅ HTML archiving of sent emails (important for SendGrid free tier)
 - ✅ Dry-run mode for testing
 
@@ -34,7 +36,8 @@ AUXCTMailer/
 │   ├── mailer.py            # Email sending and template rendering
 │   ├── context.py           # Template context processing
 │   └── templates/
-│       ├── task_status_report.html  # NEW: Priority-coded status report template
+│       ├── task_status_report.html  # Status report for members with tasks
+│       ├── no_tasks_report.html     # "All good" report for members without tasks
 │       ├── training_reminder.html   # Legacy: AUXCT training reminder template
 │       └── example.html             # Sample template
 ├── .env                     # SendGrid credentials (NOT in Git)
@@ -46,11 +49,15 @@ AUXCTMailer/
 └── CLAUDE.md               # This file
 
 # Data Files (NOT in Git):
-├── *To Do Lists for all members*.xlsx  # NEW: xlsx export from member management
-├── MemberEmail.csv                      # Member emails
-├── UnitDetails.csv                      # Unit names and details (optional)
+├── *To Do List by Member*.xlsx          # Task data with Task Status field
+├── *Unit Members - EM, PH*.xlsx         # Member info with emails/phones (primary email source)
+├── *Unit Summary - Competencies*.xlsx   # Competency status dates
+├── *Officers - Current*.xlsx            # FSO contact info
+├── MemberEmail.csv                      # Member emails (fallback)
+├── UnitDetails.csv                      # Unit names and details
+├── AUX-CT courses.csv                   # Course URLs and enrollment codes
 ├── 2025-10-01 AUX-CT DB.csv            # Legacy: CSV training data export
-└── AUX-CT courses.csv                   # Legacy: Course information
+└── competency_fso_mapping.json          # Maps competencies to FSO positions
 ```
 
 ## Important Configuration
@@ -74,26 +81,42 @@ FROM_EMAIL=paul@gaffney.io
 
 ### Data Files
 
-1. **To Do Lists xlsx** (NEW - Primary): `*To Do Lists for all members*.xlsx`
-   - Export from member management system showing all member tasks
-   - Contains: Unit/Member Name/ID, Competency Type, Competency Status, Task Type, Task Next Due, Task Last Completed, Cycle Requirement, Currency Units
+1. **To Do List by Member xlsx** (Required): `*To Do List by Member*.xlsx`
+   - Export from AUXDATA showing all member tasks
+   - Must include **Task Status** column (Expired, Not Yet Completed, In Progress, Completed)
+   - Contains: Unit/Member Name/ID, Competency Type, Competency Status, Task Type, Task Status, Task Next Due, Task Last Completed, Cycle Requirement, Currency Units
    - Multiple rows per member (one per task)
-   - Supports 17+ competency types: AUXCT, Boat Crew, Instructor, Vessel Examiner, etc.
-   - Supports 33+ task types: training courses, currency hours, exams, qualification tasks
 
-2. **Email CSV:** `MemberEmail.csv`
+2. **Unit Members xlsx** (Required): `*Unit Members - EM, PH*.xlsx`
+   - Export from AUXDATA with member contact info
+   - **Primary source for email addresses** (more current than CSV)
+   - Contains: Member ID, Name, Status, Email, Phone, Uniform Inspection date
+   - Members in this file but NOT in task data receive "all good" emails
+
+3. **Unit Summary - Competencies xlsx** (Optional): `*Unit Summary - Competencies*.xlsx`
+   - Complete list of member competencies with status dates
+   - Used to populate the "Your Qualifications" table in emails
+
+4. **Officers xlsx** (Optional): `*Officers - Current*.xlsx`
+   - Current unit officers with contact info
+   - Used for FSO-IS and FSO-MT contact info in emails
+
+5. **Email CSV:** `MemberEmail.csv` (Fallback)
    - Contains: Member ID, Last Name, First Name, Email
-   - Required for matching emails to member IDs from xlsx
+   - Used as fallback if member not in Unit Members xlsx
 
-3. **Units CSV:** `UnitDetails.csv` (optional)
-   - Contains: Unit Number, Unit Name, Type, Last Modified Date, FSO-IS, FSO-MT
+6. **Units CSV:** `UnitDetails.csv` (Optional)
+   - Contains: Unit Number, Unit Name, Type
    - Used for dynamic unit name lookup
    - Unit Number format: 7 digits (DDDVVUU - District/Division/Unit)
    - Unit names are auto-prettified: "WOODS HOLE FLOTILLA" → "Woods Hole Flotilla"
 
-4. **Legacy CSV Files** (for training_reminder.html workflow):
+7. **Courses CSV:** `AUX-CT courses.csv` (Optional)
+   - Course URLs and enrollment codes for AUXCT tasks
+   - Adds "Take this course" links to training tasks
+
+8. **Legacy CSV Files** (for training_reminder.html workflow):
    - `AUX-CT DB.csv` - Training data with course columns
-   - `AUX-CT courses.csv` - Course metadata with enrollment keys
 
 ### Extraction Date Logic
 
@@ -131,14 +154,17 @@ source venv/bin/activate
 
 ---
 
-## Task Status Report Commands (NEW - xlsx workflow)
+## Task Status Report Commands (xlsx workflow)
 
 ### Test Status Report (Single member, dry-run)
 
 ```bash
 python -m auxctmailer.status_report \
-  --xlsx "013-11-02 To Do Lists for all members-2026-01-20-14-04-19.xlsx" \
+  --xlsx "013-11-02 To Do List by Member-2026-01-28-09-40-20.xlsx" \
+  --competencies-xlsx "013-11-02 Unit Summary - Competencies-2026-01-28-09-35-17.xlsx" \
+  --members-xlsx "013-11-02 Unit Members - EM, PH-2026-01-28-09-32-19.xlsx" \
   --email-csv MemberEmail.csv \
+  --units-csv UnitDetails.csv \
   --filter-member 5008388 \
   --dry-run \
   --save-html test_status_reports
@@ -148,8 +174,13 @@ python -m auxctmailer.status_report \
 
 ```bash
 python -m auxctmailer.status_report \
-  --xlsx "013-11-02 To Do Lists for all members-2026-01-20-14-04-19.xlsx" \
+  --xlsx "013-11-02 To Do List by Member-2026-01-28-09-40-20.xlsx" \
+  --competencies-xlsx "013-11-02 Unit Summary - Competencies-2026-01-28-09-35-17.xlsx" \
+  --members-xlsx "013-11-02 Unit Members - EM, PH-2026-01-28-09-32-19.xlsx" \
   --email-csv MemberEmail.csv \
+  --units-csv UnitDetails.csv \
+  --courses-csv "AUX-CT courses.csv" \
+  --officers-xlsx "013 - Officers - Current-2026-01-21-06-57-22.xlsx" \
   --dry-run \
   --save-html test_status_reports
 ```
@@ -158,15 +189,19 @@ python -m auxctmailer.status_report \
 
 ```bash
 python -m auxctmailer.status_report \
-  --xlsx "013-11-02 To Do Lists for all members-2026-01-20-14-04-19.xlsx" \
+  --xlsx "013-11-02 To Do List by Member-2026-01-28-09-40-20.xlsx" \
+  --competencies-xlsx "013-11-02 Unit Summary - Competencies-2026-01-28-09-35-17.xlsx" \
+  --members-xlsx "013-11-02 Unit Members - EM, PH-2026-01-28-09-32-19.xlsx" \
   --email-csv MemberEmail.csv \
   --units-csv UnitDetails.csv \
-  --save-html sent_status_reports_YYYY-MM-DD
+  --courses-csv "AUX-CT courses.csv" \
+  --officers-xlsx "013 - Officers - Current-2026-01-21-06-57-22.xlsx" \
+  --save-html sent_status_reports_2026-01-28
 ```
 
 ### Filter Options (Status Report)
 
-Only members with urgent (red) tasks:
+Only members with urgent (red/expired) tasks:
 ```bash
 --filter-has-red
 ```
@@ -181,7 +216,20 @@ Single member by ID:
 --filter-member 5008388
 ```
 
+Exclude members without tasks (only send to members with task data):
+```bash
+--exclude-no-tasks
+```
+
 **Important:** Always use `--save-html` to archive sent emails!
+
+### Email Distribution
+
+By default, **all members** receive emails:
+- Members **with tasks** → `task_status_report.html` (priority-coded task list)
+- Members **without tasks** (BQ/AP status) → `no_tasks_report.html` ("all good" confirmation)
+
+Use `--exclude-no-tasks` to skip the "all good" emails if desired.
 
 ---
 
@@ -284,15 +332,16 @@ Template variables for the CSV-based training reminders:
 
 ### Task Urgency (Status Report)
 
-Tasks are categorized by urgency based on their due date:
+Tasks are categorized by the **Task Status** field from the xlsx export:
 
-- **Red (Urgent)**: Task is overdue OR due within 30 days
-- **Yellow (Attention)**: Task is due within 365 days (but more than 30 days out)
-- **Green (Good)**: Task is due more than 365 days out OR has no due date
+| Task Status | Color | Meaning |
+|-------------|-------|---------|
+| Expired | Red | Task is overdue, immediate action required |
+| Not Yet Completed | Yellow | Task needs attention |
+| In Progress | Blue | Task is being worked on |
+| Completed | Green | Task is done for this cycle |
 
-Special cases:
-- Tasks with no due date but requiring completion (cycle_requirement > 0) are marked yellow
-- Tasks with no due date and no cycle requirement are marked green
+**Important:** The xlsx export must include the "Task Status" column. Configure your AUXDATA report to show this field.
 
 ### Uniform Inspection (Legacy)
 - If `Uniform Exempt = 1`: No inspection warning
@@ -312,15 +361,37 @@ Special cases:
 
 ## HTML Archive Files
 
-Format: `{member_num}_{first_name}_{last_name}.html`
+Format: `{LAST_NAME}_{FIRST_NAME}_{member_num}.html`
 
 Examples:
-- `5008388_Paul_GAFFNEY.html`
-- `1244671_Ronald_GROSSMAN.html`
+- `GAFFNEY_PAUL_5008388.html`
+- `FARREN_MARILYN_1143581.html`
 
 **Why:** SendGrid free tier doesn't store sent emails, so these provide a local record of exactly what was sent to each member.
 
 ## Troubleshooting
+
+### SendGrid Delivery Issues (Outlook, Comcast, Juno)
+
+Some email providers have issues with SendGrid. Use SMTP fallback:
+
+1. Edit `.env` to switch provider:
+   ```bash
+   EMAIL_PROVIDER=smtp
+   ```
+
+2. Resend to specific member:
+   ```bash
+   python -m auxctmailer.status_report \
+     --xlsx "..." --members-xlsx "..." --email-csv MemberEmail.csv \
+     --filter-member 1234567 \
+     --save-html sent_status_reports_2026-01-28
+   ```
+
+3. Switch back to SendGrid:
+   ```bash
+   EMAIL_PROVIDER=sendgrid
+   ```
 
 ### SendGrid 401 Unauthorized
 - Check API key in `.env` file
@@ -328,9 +399,9 @@ Examples:
 - Ensure API key has "Mail Send" permissions
 
 ### Missing Members
-- Verify CSV files are in project root
-- Check Member # matches between training and email CSVs
-- Ensure email addresses are present in MemberEmail.csv
+- Members must be in Unit Members xlsx OR MemberEmail.csv to receive email
+- Members in task data but not in Unit Members xlsx will use MemberEmail.csv
+- Check Member # matches between files
 
 ### Wrong Due Dates
 - Verify `--extraction-date` parameter matches when training data was exported
@@ -360,11 +431,16 @@ git push
 
 ## Future Maintenance
 
-### When New Training Data Arrives
-1. Save new export as `YYYY-MM-DD AUX-CT DB.csv`
-2. Update extraction date parameter: `--extraction-date "MM/DD/YYYY"`
-3. Test with dry-run first
-4. Run production with `--save-html`
+### When New Data Arrives
+1. Export from AUXDATA:
+   - "To Do List by Member" (must include Task Status column)
+   - "Unit Members - EM, PH" (for email addresses)
+   - "Unit Summary - Competencies" (optional, for qualification dates)
+   - "Officers - Current" (optional, for FSO contacts)
+2. Place xlsx files in project directory
+3. Update filenames in command
+4. Test with `--dry-run --save-html test_output`
+5. Run production with `--save-html sent_status_reports_YYYY-MM-DD`
 
 ### Updating Contact Information
 Edit `auxctmailer/templates/training_reminder.html`:
@@ -390,18 +466,18 @@ If flotilla exceeds 100 members, consider:
 ## Production Checklist
 
 Before sending:
-- [ ] Verify extraction date is correct
-- [ ] Test email to yourself looks good
-- [ ] Check SendGrid dashboard for available sends
-- [ ] Create archive directory: `mkdir sent_emails_YYYY-MM-DD`
-- [ ] Dry run shows correct member count
+- [ ] Export fresh data from AUXDATA (To Do List must have Task Status column)
+- [ ] Place all xlsx files in project directory
+- [ ] Test with `--filter-member YOUR_ID --dry-run` to preview your own email
+- [ ] Check SendGrid dashboard for available sends (100/day free tier)
+- [ ] Dry run shows correct member count (should match unit roster)
 - [ ] `.env` credentials are current
 
 After sending:
 - [ ] Verify success count matches expected
-- [ ] Check for failed sends in output
-- [ ] Archive HTML files: `tar -czf sent_emails_YYYY-MM-DD.tar.gz sent_emails_YYYY-MM-DD/`
-- [ ] Verify in SendGrid dashboard
+- [ ] Check SendGrid for "not_delivered" or "processing" status
+- [ ] Resend failed emails via SMTP if needed (Outlook/Comcast issues)
+- [ ] Archive HTML files: `tar -czf sent_status_reports_YYYY-MM-DD.tar.gz sent_status_reports_YYYY-MM-DD/`
 
 ## Contact
 
