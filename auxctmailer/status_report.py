@@ -360,6 +360,18 @@ def main():
     # Load member info if provided (for enhanced member info box)
     member_info_data = load_member_info(args.members_xlsx) if args.members_xlsx else {}
 
+    # Use emails from members xlsx as primary source (more current than CSV)
+    if member_info_data:
+        emails_updated = 0
+        for member_id, member in members.items():
+            info = member_info_data.get(member_id, {})
+            if info.get('email'):
+                if not member.email:
+                    emails_updated += 1
+                member.email = info['email']
+        if emails_updated:
+            logger.info(f"Updated {emails_updated} member emails from members xlsx")
+
     # Load course info if provided (for AUXCT course links)
     courses_data = load_courses(args.courses_csv) if args.courses_csv else {}
 
